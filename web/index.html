@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Portfolio GraphRAG — Test</title>
+  <style>
+    :root {
+      --bg: #f7f7f5;
+      --ink: #1a1a1a;
+      --muted: #5c5c5c;
+      --line: #d9d9d4;
+      --accent: #0b6e4f;
+      --danger: #9b1c1c;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      padding: 24px;
+      max-width: 720px;
+      margin-inline: auto;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    h1 {
+      font-size: 1.25rem;
+      margin: 0;
+      font-weight: 600;
+    }
+    .hint {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+    .identity {
+      display: grid;
+      grid-template-columns: 1fr 1fr auto;
+      gap: 12px;
+      align-items: end;
+    }
+    @media (max-width: 560px) {
+      .identity { grid-template-columns: 1fr; }
+    }
+    label {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+    input, textarea, button {
+      font: inherit;
+      border-radius: 4px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+    }
+    input, textarea {
+      padding: 10px 12px;
+    }
+    input:focus, textarea:focus, button:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+    }
+    button {
+      padding: 10px 16px;
+      cursor: pointer;
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+    button:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+    button.secondary {
+      background: transparent;
+      color: var(--ink);
+      border-color: var(--line);
+    }
+    #transcript {
+      flex: 1;
+      min-height: 280px;
+      max-height: 55vh;
+      overflow-y: auto;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      padding: 16px;
+      background: #fff;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .msg { max-width: 100%; }
+    .msg.user .bubble {
+      font-size: 0.95rem;
+    }
+    .msg.bot .bubble {
+      font-size: 0.95rem;
+      white-space: pre-wrap;
+      line-height: 1.45;
+    }
+    .who {
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin-bottom: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .meta {
+      margin-top: 8px;
+      font-size: 0.8rem;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+    .meta.refused {
+      color: var(--danger);
+    }
+    .composer {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: end;
+    }
+    textarea {
+      width: 100%;
+      min-height: 72px;
+      resize: vertical;
+    }
+    #status {
+      font-size: 0.85rem;
+      color: var(--muted);
+      min-height: 1.2em;
+    }
+    #status.error { color: var(--danger); }
+    .empty {
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Portfolio GraphRAG — Test</h1>
+    <p class="hint">Try <code>demo</code> / <code>u_alpha</code> / <code>u_beta</code>. Unknown users should refuse.</p>
+  </header>
+
+  <div class="identity">
+    <label>
+      user_id
+      <input id="userId" type="text" autocomplete="off" placeholder="demo" required />
+    </label>
+    <label>
+      session_id
+      <input id="sessionId" type="text" autocomplete="off" />
+    </label>
+    <button type="button" class="secondary" id="clearSession">Clear session</button>
+  </div>
+
+  <div id="transcript" aria-live="polite">
+    <p class="empty" id="emptyHint">No messages yet. Ask about a holding, e.g. ADANIPOWER.</p>
+  </div>
+
+  <form class="composer" id="chatForm">
+    <label style="grid-column: 1 / -1;">
+      Message
+      <textarea id="message" rows="3" placeholder="How many ADANIPOWER shares do I hold?" required></textarea>
+    </label>
+    <div></div>
+    <button type="submit" id="sendBtn">Send</button>
+  </form>
+
+  <div id="status">idle</div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
