@@ -1,0 +1,87 @@
+\chapter{Features Implemented}
+\label{ch:features}
+
+Evidence catalogue for \textbf{Implemented} MVP capabilities F01--F12. Design detail lives in Chapters~\ref{ch:architecture}--\ref{ch:api}. Planned and Future Scope items are listed only to exclude them from the Implemented set (Chapter~\ref{ch:prd}).
+
+\begin{table}[!htbp]
+\centering
+\small
+\caption{Feature catalog overview}
+\label{tab:feature-catalog}
+\begin{tabularx}{\textwidth}{@{}
+  >{\centering\arraybackslash}p{0.08\textwidth}
+  >{\raggedright\arraybackslash}X
+  >{\centering\arraybackslash}p{0.16\textwidth}
+  @{}}
+\toprule
+\textbf{ID} & \textbf{Feature} & \textbf{Status} \\
+\midrule
+F01 & Portfolio JSON ingest & Implemented \\
+F02 & Neo4j portfolio graph + constraints & Implemented \\
+F03 & User-scoped GraphRAG + citations & Implemented \\
+F04 & Intent + fuzzy ticker resolution & Implemented \\
+F05 & \texttt{POST /chat} orchestration & Implemented \\
+F06 & Guardrails / refuse & Implemented \\
+F07 & DistilRoBERTa mood + gate & Implemented \\
+F08 & Dual memory (Redis + Neo4j) & Implemented \\
+F09 & Minimal test UI & Implemented \\
+F10 & Health checks & Implemented \\
+F11 & Docker Compose runtime & Implemented \\
+F12 & Multi-user sample portfolios & Implemented \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\reportfigure{fig_15_feature_map.png}%
+{Implemented feature capability map (F01--F12).}%
+{fig:feature-map}%
+{Grid/map of twelve Implemented features.}
+
+\paragraph{F01 --- Portfolio JSON ingest.}
+Load snapshot JSON into Neo4j under a chosen \texttt{user\_id}, idempotently (FR-02; US-6; J1). CLI validates shape and upserts User/Portfolio/Sector/Holding/Stock. Files: \texttt{scripts/ingest\_portfolio.py}, \texttt{services/ingest.py}. Tests: \texttt{tests/test\_ingest\_mapping.py}; ingest verify scripts. Optional HTTP ingest admin API is not MVP.
+
+\paragraph{F02 --- Neo4j portfolio graph.}
+Persist structure with constraints (FR-02, FR-03; Chapter~\ref{ch:database}). \texttt{ensure\_schema} + typed nodes/relationships (\texttt{OWNS}, \texttt{HOLDS}, \texttt{OF}, \ldots); applied at API startup and before ingest. Files: \texttt{services/schema.py}, \texttt{ingest.py}. Evidence: ingest mapping tests; Neo4j Browser. Managed Neo4j Aura/replicas are \textbf{Future Scope}.
+
+\paragraph{F03 --- User-scoped GraphRAG + citations.}
+Answer from a minimal subgraph for the requesting user, with citation payloads (FR-03, FR-04; US-1; J2/J4). \texttt{retrieve\_subgraph} builds metrics/holdings/sectors + citations; template or guarded LLM (Chapter~\ref{ch:graphrag}). Files: \texttt{retrieve.py}, \texttt{generate.py}, \texttt{chat.py}. Verify: \texttt{verify\_retrieve.py}, \texttt{verify\_chat.py}, \texttt{verify\_questions.py}. Hybrid/embedding retrieval is \textbf{Planned}/\textbf{Future Scope}---not primary MVP.
+
+\reportfigure{S05_ui_grounded_answer.png}%
+{Retrieval/citations evidence: grounded UI answer.}%
+{fig:f03}%
+{Grounded answer UI.}
+
+\paragraph{F04 --- Intent and fuzzy ticker resolution.}
+Route questions; map nicknames to held tickers only (FR-03--FR-05; Chapter~\ref{ch:requirements}). Deterministic \texttt{detect\_intent}; \texttt{resolve\_ticker} against user universe; clarify on ambiguous/none. File: \texttt{services/intent.py}. Tests: \texttt{tests/test\_intent.py}.
+
+\paragraph{F05 --- Chat orchestration API.}
+Single HTTP turn with stable JSON contract (FR-01, FR-07; US-3; J2). Thin route + \texttt{run\_chat\_turn}; OpenAPI from Pydantic. Files: \texttt{api/routes\_chat.py}, \texttt{services/chat.py}, \texttt{models/schemas.py}. Verify: \texttt{verify\_chat.py}, \texttt{verify\_demo.py}. Streaming is Planned.
+
+\paragraph{F06 --- Guardrails and refuse.}
+Prefer refuse/clarify over invented tickers, numbers, or advice (FR-05, FR-08; US-4; J4). Advice strip; ungrounded ticker/number checks; refuse-on-empty; strict LLM retry then refuse. Files: \texttt{guardrails.py}, \texttt{generate.py}. Tests: \texttt{tests/test\_guardrails.py}; \texttt{scripts/verify\_guardrails.py}.
+
+\reportfigure{S06_ui_refuse.png}%
+{Guardrails / refuse evidence.}%
+{fig:f06}%
+{Refuse UI.}
+
+\paragraph{F07 --- Mood analysis (DistilRoBERTa).}
+Classify user emotion with confidence gating; never invent mood via LLM (FR-06; US-2; J5). In-process Transformers pipeline; threshold gate; optional MoodEvent. Parallel with retrieve; independent of fact success. File: \texttt{services/mood.py}. Tests: \texttt{test\_mood\_gate.py}; \texttt{verify\_mood.py}.
+
+\paragraph{F08 --- Dual memory.}
+Redis short-term context; Neo4j long-term portfolio/mood (FR-09; US-5; J3). Key \texttt{chat:\{user\_id\}:\{session\_id\}} with cap/TTL; Clear Session does not wipe Neo4j. Files: \texttt{memory.py}; MoodEvents via \texttt{mood.py}. Tests: \texttt{test\_memory.py}; \texttt{verify\_memory.py}.
+
+\paragraph{F09 --- Minimal test web UI.}
+Exercise the same chat API without a product UI (US-3; J2--J5 demos). Static \texttt{web/} posts JSON and renders answer/mood/citations. Files: \texttt{web/index.html}, \texttt{web/app.js}. Host branded UI is out of MVP.
+
+\paragraph{F10 --- Health checks.}
+\texttt{GET /health} reports Neo4j, Redis, mood, and aggregate status (NFR operability; Chapter~\ref{ch:api}). Chat still re-checks Neo4j/mood at request time. File: \texttt{main.py}. Compose healthchecks on Neo4j/Redis.
+
+\paragraph{F11 --- Docker Compose runtime.}
+One-command handoff for API + Neo4j + Redis (US-6; NFR reproducibility). Healthgates; API image with CPU Torch + HF cache volume. Files: \texttt{docker-compose.yml}, \texttt{backend/Dockerfile}, \texttt{.env.example}. Managed cloud DBs are \textbf{Future Scope}.
+
+\paragraph{F12 --- Multi-user sample portfolios.}
+Tenant isolation with multiple \texttt{user\_id}s (FR-03). Shipped JSON for \texttt{demo}, \texttt{u\_alpha}, \texttt{u\_beta}; ingest \texttt{--all}. Holdings and Redis keys must not cross-leak. Files: \texttt{backend/portfolios/*\_portfolio.json}. Verify: \texttt{verify\_no\_orphan\_user.py}; multi-user chat probes. Host identity federation remains out of scope.
+
+\paragraph{Not Implemented.}
+\textbf{Planned:} streaming chat, semantic cache, LLM observability (e.g.\ Langfuse). \textbf{Future Scope:} host JWT/SSO, live market feeds, vector-primary RAG, agent frameworks, managed cloud DBs, full product UI. Chapter~\ref{ch:future} expands the roadmap; Chapter~\ref{ch:testing} consolidates verification.

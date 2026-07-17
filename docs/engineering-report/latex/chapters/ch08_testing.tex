@@ -1,0 +1,169 @@
+\chapter{Testing and Validation}
+\label{ch:testing}
+
+Verification system for the API-first handoff: strategy, unit catalog, Compose-backed verify scripts, sample-query matrix, requirements traceability, and honest gaps. Pass/fail counts are not invented---screenshot placeholders must be filled from real Compose runs before final submission.
+
+\section{Test strategy}
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Unit tests} (\texttt{tests/}) --- fast; no live Neo4j/LLM for most cases; guardrails, intent, mood gate, memory keying, ingest helpers.
+  \item \textbf{Verification scripts} (\texttt{scripts/verify\_*.py}) --- live Compose stack; contract smoke, retrieval isolation, mood, guardrails, question-form regression.
+  \item \textbf{Manual / UI checks} --- test page journeys J2--J5; Neo4j Browser; \texttt{/health} and Swagger.
+\end{enumerate}
+
+\reportfigure{fig_16_test_strategy.png}%
+{Test strategy: unit tests, verification scripts, and manual UI checks.}%
+{fig:test-strategy}%
+{Pyramid or layered test diagram.}
+
+\noindent
+NFR latency ($<$2\,s design target) may appear as elapsed-time prints in verify scripts, but is \textbf{not} claimed as a measured SLA unless a dated screenshot is attached.
+
+\section{Unit tests}
+
+Location: \texttt{tests/}. Typical invocation: \texttt{docker compose exec api pytest /tests -q}.
+
+\begin{table}[!htbp]
+\centering
+\small
+\caption{Unit test modules (as-built)}
+\label{tab:unit-tests}
+\begin{tabularx}{\textwidth}{@{}
+  >{\raggedright\arraybackslash}p{0.30\textwidth}
+  >{\raggedright\arraybackslash}X
+  @{}}
+\toprule
+\textbf{Module} & \textbf{What it asserts} \\
+\midrule
+\texttt{test\_guardrails.py} & Advice detect/strip; ungrounded ticker refuse; grounded ticker OK; empty retrieval refuse \\
+\addlinespace
+\texttt{test\_intent.py} & Intent labels for common phrasings; fuzzy ``Adani Power''$\rightarrow$ticker; no false ticker from ``have'' \\
+\addlinespace
+\texttt{test\_mood\_gate.py} & Confidence below/above threshold $\rightarrow$ insufficient vs labelled \\
+\addlinespace
+\texttt{test\_memory.py} & Redis key format \texttt{chat:\{user\_id\}:\{session\_id\}} \\
+\addlinespace
+\texttt{test\_ingest\_mapping.py} & Day-change field aliases; \texttt{user\_id} resolve; demo JSON load shape \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\reportfigure{S10_pytest.png}%
+{Unit test execution summary.}%
+{fig:pytest}%
+{pytest pass screenshot from a real Compose run --- do not fabricate.}
+
+\section{Verification scripts}
+
+Scripts under \texttt{scripts/} exercise the running API (default \texttt{API\_BASE=http://localhost:8000}).
+
+\begin{table}[!htbp]
+\centering
+\small
+\caption{Verification scripts (as-built)}
+\label{tab:verify-scripts}
+\begin{tabularx}{\textwidth}{@{}
+  >{\raggedright\arraybackslash}p{0.34\textwidth}
+  >{\raggedright\arraybackslash}X
+  @{}}
+\toprule
+\textbf{Script} & \textbf{Focus} \\
+\midrule
+\texttt{verify\_chat.py} & Grounded ADANIPOWER ask; refuse unknown ticker; 422 on empty \texttt{user\_id} \\
+\addlinespace
+\texttt{verify\_questions.py} & Multi-phrasing holdings/top/fuzzy; refuse bad ticker; prints per-case latency \\
+\addlinespace
+\texttt{verify\_retrieve.py} & User-scoped retrieval / isolation checks \\
+\addlinespace
+\texttt{verify\_guardrails.py} & Live path checks for refuse/advice behaviour \\
+\addlinespace
+\texttt{verify\_mood.py} & Mood payload presence / gating behaviour \\
+\addlinespace
+\texttt{verify\_memory.py} & Redis turn window behaviour \\
+\addlinespace
+\texttt{verify\_demo.py} & End-to-end demo smoke \\
+\addlinespace
+\texttt{verify\_no\_orphan\_user.py} & Chat must not create bare Users without portfolio \\
+\addlinespace
+\texttt{verify\_complex\_questions.py} & Harder question-form regression \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\reportfigure{S11_verify_scripts.png}%
+{Representative verification script output.}%
+{fig:verify}%
+{Paste real \texttt{verify\_chat.py} / \texttt{verify\_questions.py} success output.}
+
+\section{Sample queries and traceability}
+
+Table~\ref{tab:sample-queries} mirrors the regression set in \texttt{verify\_questions.py} (ingested \texttt{demo} snapshot). Exact numeric tokens are snapshot-dependent and must match the ingested file.
+
+\begin{table}[!htbp]
+\centering
+\small
+\caption{Sample query matrix (demo tenant)}
+\label{tab:sample-queries}
+\begin{tabularx}{\textwidth}{@{}
+  >{\raggedright\arraybackslash}X
+  >{\centering\arraybackslash}p{0.14\textwidth}
+  >{\raggedright\arraybackslash}p{0.22\textwidth}
+  @{}}
+\toprule
+\textbf{Query} & \textbf{Refuse?} & \textbf{Expect contains} \\
+\midrule
+How many holdings do I have? & No & total-stocks token from metrics \\
+\addlinespace
+What are my top performing stocks? & No & top P\&L tickers from graph \\
+\addlinespace
+How many Adani power shares do I hold? & No & fuzzy$\rightarrow$ADANIPOWER qty \\
+\addlinespace
+How many NOTAREALTICKER shares do I hold? & Yes & \texttt{refused=true} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{table}[!htbp]
+\centering
+\small
+\caption{FR/US $\rightarrow$ verification (Implemented)}
+\label{tab:trace-full}
+\begin{tabularx}{\textwidth}{@{}
+  >{\raggedright\arraybackslash}p{0.16\textwidth}
+  >{\raggedright\arraybackslash}p{0.28\textwidth}
+  >{\raggedright\arraybackslash}X
+  @{}}
+\toprule
+\textbf{Requirement} & \textbf{Design locus} & \textbf{Verification} \\
+\midrule
+FR-01 / US-3 & \texttt{schemas.py}, routes & \texttt{verify\_chat} 422 case; Swagger manual \\
+\addlinespace
+FR-02 / J1 & ingest + schema & \texttt{test\_ingest\_mapping}; ingest CLI; S09 \\
+\addlinespace
+FR-03--05 / US-1,4 & retrieve, chat, guardrails & \texttt{test\_guardrails}; \texttt{verify\_retrieve}; \texttt{verify\_chat}/\texttt{questions} \\
+\addlinespace
+FR-06 / US-2 / J5 & mood service & \texttt{test\_mood\_gate}; \texttt{verify\_mood} \\
+\addlinespace
+FR-07--08 & generate + guardrails & unit guardrails; live refuse paths \\
+\addlinespace
+FR-09 / US-5 / J3 & memory + Neo4j & \texttt{test\_memory}; \texttt{verify\_memory} \\
+\addlinespace
+FR-10 / F10 & \texttt{/health} & manual S02; Compose healthchecks \\
+\addlinespace
+FR-11 / US-6 / F11 & Compose handoff & S01; README bring-up \\
+\addlinespace
+Isolation / F12 & multi-user JSON & \texttt{verify\_no\_orphan\_user}; cross-\texttt{user\_id} probes \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Results and gaps}
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Automated design:} unit + verify suites above are the authoritative regression harness.
+  \item \textbf{Documented logs:} \texttt{docs/testing/Results.md} and \texttt{Test\_Cases.md} remain templates---not a substitute for pasted run evidence.
+  \item \textbf{This report:} Figures~\ref{fig:pytest} and~\ref{fig:verify} are slots for real outputs after a Compose validation pass. Until filled, do not claim a numeric pass rate in the Executive Summary.
+\end{itemize}
+
+\noindent
+\textbf{Known gaps:} no CI workflow files in the repository (local/Compose verification is the Implemented path); formal \texttt{docs/testing/*} case/result tables are still stubs; end-to-end latency and scale NFRs remain \textbf{design targets} unless measured evidence is attached; verify scripts require a healthy stack, ingested \texttt{demo} data, and a valid LLM key for non-templated paths.

@@ -1,0 +1,95 @@
+\chapter{Introduction}
+\label{ch:introduction}
+\label{ch:company}
+\label{ch:problem}
+\label{ch:finance}
+
+\section{Industrial and academic context}
+
+\textbf{AlgoFabric} is a stock-market analytics product of \textbf{AlgoAnalytics} (\url{https://algofabric.algoanalytics.com/}) combining AI/NLP with market analysis, including semantic search~\cite{algofabric-web,algoanalytics-products}. This Industry Sponsored Project with Vishwakarma Institute of Technology, Pune (Faculty Guide \textbf{Prof.\ Rakhi Bharadwaj}; team \textbf{Atharv Gore}, \textbf{Aayush Lathi}, \textbf{Mayank Goplani}, \textbf{Dnyanraj Gore}) delivered the GenAI \textbf{Chatbot} workstream---grounded Q\&A over authorised data---distinct from the NL Query Agent (screening) and Backtesting Agent (strategy evaluation). Public AlgoFabric materials advertise recommendations; the Implemented MVP is deliberately \textbf{analyser-not-suggester}: report graph facts and analyse mood, never invent positions or advise trades.
+
+\section{Problem statement}
+
+Users struggle to see \textbf{what they hold} without navigating portfolio screens for quantities, sectors, allocation, and P\&L. Chat should also \textbf{analyse message mood} via a dedicated classifier (not the LLM), never as a pretext for advice. The need is trusted answers over authorised holdings plus an auditable mood signal---without fabricated market knowledge or buy/sell recommendations~\cite{prd}.
+
+Technically, the system must be \textbf{API-first}: Neo4j facts scoped by \texttt{user\_id}; refuse when evidence is missing; DistilRoBERTa mood with label/confidence; dual memory (Redis turns, Neo4j portfolio/mood events); Docker Compose reproducibility and a minimal test page.
+
+\begin{quote}
+Portfolio GraphRAG analyses \emph{your} holdings graph and \emph{your} message mood---with dual memory for conversation context and lasting portfolio/mood state---so you get facts you can trust, not invented market knowledge or advice~\cite{prd}.
+\end{quote}
+
+\begin{table}[!htbp]
+\centering
+\small
+\caption{Product goals for the Portfolio GraphRAG Chatbot}
+\label{tab:goals-g1-g6}
+\begin{tabularx}{\textwidth}{@{}
+  >{\centering\arraybackslash}p{0.08\textwidth}
+  >{\raggedright\arraybackslash}X
+  @{}}
+\toprule
+\textbf{ID} & \textbf{Goal} \\
+\midrule
+G1 & Answer portfolio questions from ingested graph data only, scoped by \texttt{user\_id} \\
+\addlinespace
+G2 & Detect user mood from chat text via a dedicated classifier (not the LLM) \\
+\addlinespace
+G3 & Ship an API-first chatbot that another platform can integrate; minimal web page for testing \\
+\addlinespace
+G4 & Enforce no-hallucination and analyser-not-suggester behaviour \\
+\addlinespace
+G5 & Keep the system simple, reproducible (Docker), and scalable toward approximately 10k users \\
+\addlinespace
+G6 & Respond with sub-2-second latency for a typical chat turn (\textbf{target}) \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\noindent
+G5--G6 are design targets; measured results appear only where verification evidence exists. MVP non-goals~\cite{prd}: host UI/auth product work (\texttt{user\_id} assumed on requests); live market/news feeds; buy/sell advice; multi-agent orchestrators; full consumer UI; second primary DB; vector-DB RAG. Sibling agents are Future Scope only if composed behind one orchestrator.
+
+\begin{table}[!htbp]
+\centering
+\small
+\caption{Scope boundary for the Chatbot workstream}
+\label{tab:scope-boundary}
+\begin{tabularx}{\textwidth}{@{}
+  >{\raggedright\arraybackslash}p{0.22\textwidth}
+  >{\raggedright\arraybackslash}X
+  @{}}
+\toprule
+\textbf{Boundary} & \textbf{Contents} \\
+\midrule
+\textbf{In scope (Implemented MVP)} &
+Chat API; Neo4j portfolio graph and ingest; user-scoped GraphRAG; DistilRoBERTa mood; anti-hallucination stack; Redis + Neo4j dual memory; minimal test UI; Docker Compose reproducibility \\
+\addlinespace
+\textbf{Out of scope (MVP)} &
+Host SSO/UI product work; live market/news feeds; investment advice; multi-agent orchestration; full consumer UI; second primary DB; vector-DB RAG in MVP \\
+\addlinespace
+\textbf{Planned} &
+Semantic cache; streaming responses; LLM I/O observability (for example Langfuse); horizontal API scale behind a simple load balancer \\
+\addlinespace
+\textbf{Future Scope} &
+Host-platform SSO/JWT deep integration; richer portfolio entity types (transactions, snapshots); managed Neo4j / Redis clustering if required at scale; cross-agent orchestration with sibling GenAI tracks \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\noindent
+Personas~\cite{prd}: retail/platform investor (natural-language holdings questions); integrating engineer (stable API; answer + mood + citations + refuse); internal engineer (Compose, ingest, handoff).
+
+\section{Domain Concepts}
+
+Domain training supplied the vocabulary for graph entities and chat intents~\cite{prd}. Only terms used later in requirements and features are defined here. Excel risk metrics (returns, Sharpe, drawdown, alpha / beta / $R^2$) were \textbf{learning} only---not recomputed live in chat.
+
+\paragraph{Portfolio.}
+Collection of a user's positions at a point in time, with aggregates (total investment, current value, overall P\&L, stock/sector counts) under a top-level \texttt{metrics} object in the canonical sample~\cite{prd}. Scoped by \texttt{user\_id} and ingested into Neo4j; answers refer to that snapshot, not a live brokerage feed.
+
+\paragraph{Holding / stock (ticker).}
+A \textbf{holding} is one instrument position (trading symbol, exchange, quantity, average/last price, investment/current value, P\&L). Sample portfolios (\texttt{demo}, \texttt{u\_alpha}, \texttt{u\_beta}) follow this shape. A \textbf{stock} is identified primarily by trading symbol. GraphRAG resolves names via intent detection and fuzzy ticker matching against the user's graph.
+
+\paragraph{Sector and allocation.}
+A \textbf{sector} groups holdings for allocation analysis: per-holding \texttt{sector} labels and portfolio-level \texttt{sectors[]} rollups (investment, current value, P\&L, \texttt{allocation} percentages). These drive overview/allocation intents and Neo4j Sector nodes (User / Portfolio / Sector / Holding / Stock).
+
+\paragraph{Profit and Loss (P\&L).}
+Gain or loss vs cost (\texttt{pnl} / \texttt{profit\_loss}, \texttt{profit\_loss\_percent}, and aggregates in \texttt{metrics} / \texttt{sectors[]}). The chatbot reports ingested valuation fields only; it does not mark-to-market from a live price API, and refuses when evidence is missing.

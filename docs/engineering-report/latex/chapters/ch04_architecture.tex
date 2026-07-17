@@ -1,0 +1,194 @@
+\chapter{Architecture}
+\label{ch:architecture}
+\label{ch:stack}
+
+\section{As-built stack}
+
+The TRD locks technology choices and principles (Chapter~\ref{ch:trd}). This section records repository pins, contested decisions, and Compose topology.
+
+\begin{table}[!htbp]
+\centering
+\small
+\caption{As-built layer map (repository pins)}
+\label{tab:stack-map}
+\begin{tabularx}{\textwidth}{@{}
+  >{\raggedright\arraybackslash}p{0.18\textwidth}
+  >{\raggedright\arraybackslash}p{0.34\textwidth}
+  >{\raggedright\arraybackslash}X
+  @{}}
+\toprule
+\textbf{Layer} & \textbf{Concrete artefact} & \textbf{Source of truth} \\
+\midrule
+Client & Static page under \texttt{web/} & Test harness only \\
+\addlinespace
+API & FastAPI~0.115.6 + Uvicorn~0.34.0 on Python~3.12 & \texttt{requirements.txt}, Dockerfile \\
+\addlinespace
+Graph & Neo4j~5 Community (\texttt{neo4j:5-community}) & \texttt{docker-compose.yml} \\
+\addlinespace
+Memory & Redis~7 (\texttt{redis:7-alpine}) & \texttt{docker-compose.yml} \\
+\addlinespace
+Mood & Transformers~4.47.1 + CPU Torch; DistilRoBERTa emotion & \texttt{requirements.txt}, Dockerfile, \texttt{MOOD\_MODEL} \\
+\addlinespace
+LLM & \texttt{openai}~1.59.6 client $\rightarrow$ Groq via \texttt{LLM\_BASE\_URL} & \texttt{.env.example} \\
+\addlinespace
+Packaging & Compose services \texttt{api}, \texttt{neo4j}, \texttt{redis} & \texttt{docker-compose.yml} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\reportfigure{fig_08_tech_stack.png}%
+{Layered technology stack for the Portfolio GraphRAG Chatbot.}%
+{fig:tech-stack}%
+{Layers: Client UI, FastAPI, Neo4j, Redis, Groq/OpenAI LLM, DistilRoBERTa, Docker Compose.}
+
+\paragraph{Contested decisions.}
+FinBERT scores financial sentiment of market text; the product requires classifying \emph{user emotion in chat}, so DistilRoBERTa supplies a discrete label and confidence that can be gated before a MoodEvent is persisted---the LLM must not invent mood~\cite{distilroberta,trd}. MVP evidence is a typed holdings graph under \texttt{user\_id}; Cypher returns attributable properties for citations and guardrails, whereas a vector index as the \emph{primary} path would weaken the user-scope security anchor without solving multi-hop portfolio questions (hybrid/embedding retrieval remains Planned/Future, not Implemented)~\cite{prd,trd}. Agent loops add latency and obscure audit trails; the repository implements one retrieval and one generation per turn in application services rather than LangChain/LlamaIndex~\cite{trd}.
+
+\begin{table}[!htbp]
+\centering
+\small
+\caption{Pinned Python dependencies (\texttt{backend/requirements.txt})}
+\label{tab:deps}
+\begin{tabularx}{\textwidth}{@{}
+  >{\raggedright\arraybackslash}p{0.30\textwidth}
+  >{\raggedright\arraybackslash}p{0.16\textwidth}
+  >{\raggedright\arraybackslash}X
+  @{}}
+\toprule
+\textbf{Package} & \textbf{Pin} & \textbf{Role} \\
+\midrule
+\texttt{fastapi} & 0.115.6 & HTTP API / OpenAPI \\
+\addlinespace
+\texttt{uvicorn[standard]} & 0.34.0 & ASGI server \\
+\addlinespace
+\texttt{neo4j} & 5.27.0 & Bolt driver \\
+\addlinespace
+\texttt{redis} & 5.2.1 & Short-term memory client \\
+\addlinespace
+\texttt{pydantic-settings} & 2.7.1 & Typed env settings \\
+\addlinespace
+\texttt{python-dotenv} & 1.0.1 & Local \texttt{.env} load \\
+\addlinespace
+\texttt{transformers} & 4.47.1 & Mood pipeline \\
+\addlinespace
+\texttt{openai} & 1.59.6 & OpenAI-compatible LLM client \\
+\addlinespace
+\texttt{torch} (CPU) & Dockerfile & Mood model runtime \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{table}[!htbp]
+\centering
+\small
+\caption{Docker Compose services (as-built)}
+\label{tab:compose-topo}
+\begin{tabularx}{\textwidth}{@{}
+  >{\raggedright\arraybackslash}p{0.12\textwidth}
+  >{\raggedright\arraybackslash}p{0.28\textwidth}
+  >{\raggedright\arraybackslash}X
+  @{}}
+\toprule
+\textbf{Service} & \textbf{Image / build} & \textbf{Ports and notes} \\
+\midrule
+\texttt{neo4j} & \texttt{neo4j:5-community} & 7474, 7687; volume \texttt{neo4j\_data}; healthcheck before API \\
+\addlinespace
+\texttt{redis} & \texttt{redis:7-alpine} & 6379; \texttt{PING} healthcheck \\
+\addlinespace
+\texttt{api} & \texttt{backend/Dockerfile} & 8000; \texttt{.env}; Bolt/Redis via Compose DNS; HF cache volume \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\reportfigure{S01_compose_healthy.png}%
+{Compose runtime services used for local development and handoff.}%
+{fig:compose-stack}%
+{Capture healthy Compose services (\texttt{docker compose ps}).}
+
+\section{Logical and physical architecture}
+
+At runtime a single FastAPI process orchestrates: a \textbf{Client} (static test page or host UI calling \texttt{POST /chat} with \texttt{user\_id}, message, optional \texttt{session\_id}); the \textbf{API process} (routes, lifespan, \texttt{run\_chat\_turn} in \texttt{services/chat.py}); \textbf{Neo4j} (portfolio graph and MoodEvents; all reads start at \texttt{(:User \{id: \$user\_id\})}); \textbf{Redis} (short-term turn window); \textbf{Mood classifier} (DistilRoBERTa in-process at startup); and an \textbf{LLM gateway} (one OpenAI-compatible client when a templated answer is not enough).
+
+\reportfigure{fig_09_logical_architecture.png}%
+{Logical component architecture of the Portfolio GraphRAG Chatbot.}%
+{fig:logical-arch}%
+{Boxes: Web/Client, FastAPI, chat orchestrator, Neo4j, Redis, Mood, LLM.}
+
+On lifespan start the API opens a pooled Neo4j driver and Redis client, runs \texttt{ensure\_schema}, warms the mood classifier (\texttt{mood\_ready}), and closes connections on shutdown~\cite{fastapi}. Chat requests never open per-request drivers. The static test UI mounts after API routes so \texttt{/health} and \texttt{/chat} take precedence~\cite{readme}. Physically, Compose services \texttt{api}, \texttt{neo4j}, and \texttt{redis} match Table~\ref{tab:compose-topo}; the API reaches Neo4j/Redis by Compose DNS; the LLM is egress HTTP; mood weights live in the HF cache volume. There is no separate mood microservice or vector store in MVP. Production may relocate Neo4j/Redis to managed hosts while keeping the same API image (Future Scope).
+
+\section{Chat orchestration}
+\label{sec:chat-orch}
+
+Every accepted chat request is handled by \texttt{run\_chat\_turn} in \texttt{backend/app/services/chat.py}:
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Route gate.} \texttt{POST /chat} verifies Neo4j connectivity and mood readiness; otherwise HTTP 503.
+  \item \textbf{Intent.} \texttt{detect\_intent} classifies the message (deterministic taxonomy).
+  \item \textbf{Parallel fan-out.} Mood classification, Redis history load, and portfolio-universe probe (\texttt{user\_has\_portfolio} + ticker list) via \texttt{asyncio.gather}.
+  \item \textbf{Ticker resolve / clarify.} Fuzzy or exact resolution may produce a clarification (refused) without the LLM.
+  \item \textbf{Retrieve.} \texttt{retrieve\_subgraph} loads a minimal user-scoped context and citation payloads.
+  \item \textbf{Answer.} Prefer a deterministic template for common intents (\texttt{count\_holdings}, \texttt{top\_performers}, single \texttt{holding\_lookup}); otherwise \texttt{generate\_grounded\_answer} with guardrails. Templates skip the LLM for those high-frequency facts.
+  \item \textbf{Persist.} Append turns to Redis; optionally write a MoodEvent when confidence gates pass.
+\end{enumerate}
+
+\reportfigure{fig_09_chat_sequence.png}%
+{As-built sequence for one \texttt{POST /chat} turn.}%
+{fig:chat-seq-asbuilt}%
+{Sequence diagram aligned to chat.py.}
+
+\noindent
+This realises ``one retrieval, one generation'' while allowing a \emph{zero-LLM} path when templates already ground the answer.
+
+\section{Ingest, health, and source map}
+
+Ingest is offline relative to chat. Operators load portfolio JSON into Neo4j under a chosen \texttt{user\_id}; chat never trusts client-supplied holdings. CLI entry \texttt{scripts/ingest\_portfolio.py} calls \texttt{services/ingest.py}, which validates required top-level keys (\texttt{metrics}, \texttt{sectors}, \texttt{holdings}), ensures schema, and upserts the user-scoped graph idempotently.
+
+\reportfigure{fig_09_ingest_flow.png}%
+{Offline ingest flow from portfolio JSON into Neo4j.}%
+{fig:ingest-flow}%
+{JSON $\rightarrow$ ingest script $\rightarrow$ Neo4j.}
+
+\texttt{GET /health} reports connectivity without a full chat turn: \texttt{neo4j} (Bolt \texttt{verify\_connectivity}), \texttt{redis} (\texttt{PING}), \texttt{mood} (\texttt{mood\_ready}), and \texttt{status} (\texttt{ok} or \texttt{degraded}). Chat re-checks Neo4j and mood readiness at request time so an unhealthy process fails closed with 503.
+
+\reportfigure{S02_health_json.png}%
+{Health endpoint confirming Neo4j, Redis, and mood readiness.}%
+{fig:health}%
+{Screenshot \texttt{/health}.}
+
+\begin{table}[!htbp]
+\centering
+\small
+\caption{Architectural role $\rightarrow$ as-built module}
+\label{tab:source-tree}
+\begin{tabularx}{\textwidth}{@{}
+  >{\raggedright\arraybackslash}p{0.22\textwidth}
+  >{\raggedright\arraybackslash}p{0.38\textwidth}
+  >{\raggedright\arraybackslash}X
+  @{}}
+\toprule
+\textbf{Role (TRD sense)} & \textbf{As-built path} & \textbf{Note} \\
+\midrule
+API / lifespan / health & \texttt{backend/app/main.py} & Driver, Redis, mood warm-up \\
+\addlinespace
+HTTP chat route & \texttt{api/routes\_chat.py} & 503 on dependency failure \\
+\addlinespace
+Orchestration & \texttt{services/chat.py} & Intent, parallel I/O, template vs LLM \\
+\addlinespace
+Intent / ticker & \texttt{services/intent.py} & Deterministic taxonomy \\
+\addlinespace
+Graph retrieve & \texttt{services/retrieve.py} & User-scoped Cypher + citations \\
+\addlinespace
+Schema / ingest & \texttt{services/schema.py}, \texttt{ingest.py} & Constraints; JSON upsert \\
+\addlinespace
+Mood & \texttt{services/mood.py} & Classifier $\neq$ LLM \\
+\addlinespace
+Memory & \texttt{services/memory.py} & Redis window \\
+\addlinespace
+Generate / LLM / guards & \texttt{generate.py}, \texttt{llm\_client.py}, \texttt{guardrails.py} & Single LLM gateway \\
+\addlinespace
+Contracts & \texttt{models/schemas.py}, \texttt{config.py} & Request/response; settings \\
+\addlinespace
+CLI ingest & \texttt{scripts/ingest\_portfolio.py} & Offline load \\
+\bottomrule
+\end{tabularx}
+\end{table}

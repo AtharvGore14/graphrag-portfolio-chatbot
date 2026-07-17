@@ -1,0 +1,291 @@
+\chapter{Requirements}
+\label{ch:requirements}
+\label{ch:prd}
+\label{ch:trd}
+
+Engineering contract for the Portfolio GraphRAG Chatbot from the approved PRD and TRD~\cite{prd,trd} (\texttt{planning/01-PRD.md}, \texttt{planning/02-TRD.md}). As-built pins appear in later chapters.
+
+\section{Actors}
+
+Host login and branded UI are outside MVP; each request carries a known \texttt{user\_id}.
+
+\begin{table}[!htbp]
+\centering
+\small
+\caption{Actors for requirement analysis}
+\label{tab:actors}
+\begin{tabularx}{\textwidth}{@{}
+  >{\raggedright\arraybackslash}p{0.28\textwidth}
+  >{\raggedright\arraybackslash}X
+  @{}}
+\toprule
+\textbf{Actor} & \textbf{Interaction with the system} \\
+\midrule
+Retail / platform investor &
+Sends natural-language portfolio questions; receives grounded answer, mood payload, and citations or an explicit refuse \\
+\addlinespace
+Integrating platform &
+Calls \texttt{POST /chat} with \texttt{user\_id}, message, and optional \texttt{session\_id} \\
+\addlinespace
+Internal / company engineer &
+Runs Compose, ingests sample JSON, verifies behaviour, and hands off the stack \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Functional and non-functional requirements}
+
+Table~\ref{tab:frs} consolidates MVP functional requirements from PRD goals, user stories, and feature lock~\cite{prd}. Planned items (semantic cache, streaming, LLM observability) are later increments, not MVP FRs.
+
+\begin{table}[!htbp]
+\centering
+\small
+\caption{Functional requirements (MVP)}
+\label{tab:frs}
+\begin{tabularx}{\textwidth}{@{}
+  >{\centering\arraybackslash}p{0.10\textwidth}
+  >{\raggedright\arraybackslash}X
+  >{\centering\arraybackslash}p{0.16\textwidth}
+  @{}}
+\toprule
+\textbf{ID} & \textbf{Requirement} & \textbf{Status} \\
+\midrule
+FR-01 &
+Accept chat requests with required \texttt{user\_id} and message; reject invalid requests with 4xx &
+Implemented \\
+\addlinespace
+FR-02 &
+Ingest sample portfolio JSON into Neo4j under a given \texttt{user\_id} (idempotent) &
+Implemented \\
+\addlinespace
+FR-03 &
+Retrieve portfolio facts only via Cypher scoped by \texttt{user\_id} (no cross-user traversal) &
+Implemented \\
+\addlinespace
+FR-04 &
+Answer holdings / overview / allocation-style questions from retrieved subgraph facts only &
+Implemented \\
+\addlinespace
+FR-05 &
+Refuse factual asks when evidence is empty; do not LLM-fill missing prices, quantities, or positions &
+Implemented \\
+\addlinespace
+FR-06 &
+Classify mood from message text via DistilRoBERTa; expose label and confidence; gate low-confidence mood &
+Implemented \\
+\addlinespace
+FR-07 &
+Use the LLM for language phrasing over verified inputs only (not fact or mood invention) &
+Implemented \\
+\addlinespace
+FR-08 &
+Apply guardrails: citation / source binding and advisory-language filtering (analyser-not-suggester) &
+Implemented \\
+\addlinespace
+FR-09 &
+Maintain Redis short-term conversation memory keyed by user/session; persist MoodEvents in Neo4j when confidence allows &
+Implemented \\
+\addlinespace
+FR-10 &
+Provide \texttt{GET /health} and a minimal test webpage that exercises the same chat API &
+Implemented \\
+\addlinespace
+FR-11 &
+Package API + Neo4j + Redis with Docker Compose and documented environment variables &
+Implemented \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+NFRs follow the TRD~\cite{trd}. Latency and scale are \textbf{design targets} unless measured in testing.
+
+\begin{table}[!htbp]
+\centering
+\small
+\caption{Non-functional requirements}
+\label{tab:nfrs}
+\begin{tabularx}{\textwidth}{@{}
+  >{\centering\arraybackslash}p{0.10\textwidth}
+  >{\raggedright\arraybackslash}p{0.22\textwidth}
+  >{\raggedright\arraybackslash}X
+  >{\centering\arraybackslash}p{0.14\textwidth}
+  @{}}
+\toprule
+\textbf{ID} & \textbf{Category} & \textbf{Requirement} & \textbf{Status} \\
+\midrule
+NFR-01 &
+Performance &
+End-to-end chat latency $<$~2\,s for a typical turn (\textbf{target}); mood + retrieval (+ Redis read) in parallel; exactly one LLM completion with capped tokens &
+Target \\
+\addlinespace
+NFR-02 &
+Scalability &
+Stateless API suitable for horizontal replica scale; single Neo4j + Redis first; architecture oriented toward $\sim$10k users &
+Target \\
+\addlinespace
+NFR-03 &
+Security &
+Every graph query anchored on \texttt{user\_id}; portfolio facts only from Neo4j; secrets via environment; host SSO/JWT deferred &
+Implemented (MVP trust model) \\
+\addlinespace
+NFR-04 &
+Reliability / grounding &
+Layered anti-hallucination: classifier mood, Cypher facts, refuse-on-empty, citation checks, advice filter, single-shot generation &
+Implemented \\
+\addlinespace
+NFR-05 &
+Reproducibility &
+Compose bring-up, \texttt{.env.example}, ingest script, and README runbook for handoff &
+Implemented \\
+\addlinespace
+NFR-06 &
+Operability &
+Clear API error behaviour (for example Neo4j/LLM unavailable $\rightarrow$ fail closed, not invent); test page usable for exercise &
+Implemented \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Journeys and intent taxonomy}
+
+\begin{table}[!htbp]
+\centering
+\small
+\caption{Journeys J1--J5 (requirements view)}
+\label{tab:journeys}
+\begin{tabularx}{\textwidth}{@{}
+  >{\centering\arraybackslash}p{0.08\textwidth}
+  >{\raggedright\arraybackslash}p{0.28\textwidth}
+  >{\raggedright\arraybackslash}X
+  @{}}
+\toprule
+\textbf{ID} & \textbf{Journey} & \textbf{Required outcome} \\
+\midrule
+J1 &
+Ingest sample portfolio &
+JSON loads into Neo4j under \texttt{user\_id}; re-run is idempotent; invalid input fails without a corrupt half-write \\
+\addlinespace
+J2 &
+Test chat (happy path) &
+Grounded answer + mood payload + citations for a factual ask with evidence \\
+\addlinespace
+J3 &
+Multi-turn follow-up &
+Recent turns from Redis inform follow-ups; changing \texttt{session\_id} clears short-term context without wiping the portfolio graph \\
+\addlinespace
+J4 &
+Refuse / empty data &
+Honest ``no data'' when retrieval misses; no invented tickers, quantities, prices, or P\&L \\
+\addlinespace
+J5 &
+Mood with facts &
+Mood confidence $\times$ retrieval hit/miss (Table~\ref{tab:j5-mood}); mood never blocks a grounded factual answer; facts never invent mood \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\noindent
+Edges: unknown \texttt{user\_id} --- refuse facts (mood may run); ticker not held --- refuse; ambiguous ticker --- clarify; Redis down --- proceed without short-term memory; Neo4j down --- fail closed.
+
+\begin{table}[!htbp]
+\centering
+\small
+\caption{J5 mood $\times$ evidence matrix (PRD)}
+\label{tab:j5-mood}
+\begin{tabularx}{\textwidth}{@{}lll@{}}
+\toprule
+\textbf{Mood confidence} & \textbf{Portfolio evidence} & \textbf{Response behaviour} \\
+\midrule
+High & Hit & Answer + mood label + citations \\
+Low / insufficient & Hit & Answer + insufficient-signal mood + citations \\
+High & Miss & Refuse facts + mood label \\
+Low / insufficient & Miss & Refuse facts + insufficient-signal mood \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{table}[!htbp]
+\centering
+\small
+\caption{Implemented intent taxonomy}
+\label{tab:intents}
+\begin{tabularx}{\textwidth}{@{}
+  >{\ttfamily\raggedright\arraybackslash}p{0.28\textwidth}
+  >{\raggedright\arraybackslash}X
+  @{}}
+\toprule
+\textbf{Intent} & \textbf{User need (examples)} \\
+\midrule
+count\_holdings &
+How many holdings / positions do I have? \\
+\addlinespace
+top\_performers &
+Top or worst performers by P\&L / return in the snapshot \\
+\addlinespace
+holding\_lookup &
+Details for a named or fuzzy-matched ticker the user holds \\
+\addlinespace
+portfolio\_overview &
+Allocation, sector, total investment / current value, diversification-style overview \\
+\addlinespace
+unclear &
+Insufficient signal to route; ask a clarifying question without inventing facts \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Product contract and data lock}
+
+PRD user-story acceptance~\cite{prd} maps onto the FRs above: US-1 holdings Q\&A (user-scoped Cypher; refuse; citations); US-2 classifier mood with confidence gating; US-3 stable API; US-4 no advice / no hallucination; US-5 dual memory (clearing Redis does not wipe the portfolio graph); US-6 Compose handoff with idempotent ingest. \textbf{Planned}: semantic cache; streaming; LLM I/O observability (e.g.\ Langfuse); horizontal API scale. \textbf{Future Scope}: host SSO/JWT; richer entities (transactions, historical snapshots); managed Neo4j/Redis clustering~\cite{prd}.
+
+Data lock~\cite{prd}: legacy seed snapshot \texttt{backend/portfolio\_data (27).json} (PRD canonical shape); operators should ingest the normalised per-user files under \texttt{backend/portfolios/\{user\_id\}\_portfolio.json} (\texttt{demo}, \texttt{u\_alpha}, \texttt{u\_beta}). Prices and P\&L are snapshot values at ingest time, not live market values.
+
+\section{Architecture intent}
+
+TRD principles lock the engineering contract~\cite{trd}: stateless API; \texttt{user\_id} as security anchor (every graph read from \texttt{(:User \{id: \$user\_id\})}; no unscoped MATCH); LLM = language only; one retrieval, one LLM call; ingested snapshot only. Stack, pins, env catalogue, and Compose topology are recorded as-built in Chapters~\ref{ch:architecture}--\ref{ch:deployment}. Explicitly out of MVP: PostgreSQL/second primary DB, LangChain/LlamaIndex agent loops, vector-DB RAG as primary retrieval, live market APIs. Managed Neo4j/Redis is \textbf{Future Scope}.
+
+\section{Traceability}
+
+\begin{center}
+\textbf{Requirement (FR/NFR/J)} $\rightarrow$ \textbf{Design / module} $\rightarrow$ \textbf{Test or verify script}
+\end{center}
+
+\begin{table}[!htbp]
+\centering
+\small
+\caption{Traceability stub (full matrix: Table~\ref{tab:trace-full}, Chapter~\ref{ch:testing})}
+\label{tab:trace-stub}
+\begin{tabularx}{\textwidth}{@{}
+  >{\centering\arraybackslash}p{0.12\textwidth}
+  >{\raggedright\arraybackslash}p{0.36\textwidth}
+  >{\raggedright\arraybackslash}X
+  @{}}
+\toprule
+\textbf{Req.} & \textbf{Primary design locus} & \textbf{Verification locus} \\
+\midrule
+FR-02 / J1 &
+Ingest + schema modules; ingest CLI &
+Ingest scripts; data-integrity checks \\
+\addlinespace
+FR-03--05 / J2,J4 &
+Retrieve, chat orchestration, guardrails &
+Retrieval isolation and chat smoke verifies; guardrail unit tests \\
+\addlinespace
+FR-06 / J5 &
+Mood service + confidence gate &
+Mood verify script; mood unit tests \\
+\addlinespace
+FR-09 / J3 &
+Redis memory service &
+Memory behaviour verifies \\
+\addlinespace
+FR-11 / NFR-05 &
+Compose, \texttt{.env.example}, README &
+Local bring-up checklist / health endpoint \\
+\addlinespace
+NFR-01 &
+Parallel mood + retrieve; single LLM call &
+Measured only if captured in testing evidence (else remains target) \\
+\bottomrule
+\end{tabularx}
+\end{table}

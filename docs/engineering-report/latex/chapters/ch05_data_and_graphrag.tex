@@ -1,0 +1,278 @@
+\chapter{Data and GraphRAG}
+\label{ch:database}
+\label{ch:graphrag}
+
+\section{Design goals}
+
+Data layer goals~\cite{trd,prd}: Neo4j for portfolio facts and MoodEvents; Redis for recent chat turns only; \texttt{user\_id} tenant boundary on every holdings read/write; idempotent snapshot ingest; prices and P\&L are ingest-time values, not live market state.
+\section{Neo4j model}
+
+Labels and relationships match \texttt{planning/05-backend-schema.md} and \texttt{services/ingest.py}.
+
+\reportfigure{fig_10_graph_schema.png}%
+{Neo4j portfolio graph schema (nodes and relationships).}%
+{fig:graph-schema}%
+{Draw schema from planning/05-backend-schema.md.}
+
+\begin{table}[!htbp]
+\centering
+\small
+\caption{Node types (MVP)}
+\label{tab:nodes}
+\begin{tabularx}{\textwidth}{@{}
+  >{\raggedright\arraybackslash}p{0.16\textwidth}
+  >{\raggedright\arraybackslash}p{0.22\textwidth}
+  >{\raggedright\arraybackslash}X
+  @{}}
+\toprule
+\textbf{Label} & \textbf{Identity} & \textbf{Role} \\
+\midrule
+\texttt{User} & \texttt{id} & Security anchor; owns one portfolio in MVP \\
+\addlinespace
+\texttt{Portfolio} & via \texttt{OWNS} from User & Aggregate metrics (\texttt{total\_investment}, \texttt{current\_value}, \ldots) \\
+\addlinespace
+\texttt{Sector} & \texttt{name} per portfolio & Allocation rollups under \texttt{HAS\_SECTOR} \\
+\addlinespace
+\texttt{Holding} & per position (incl.\ \texttt{ticker}) & Quantity, prices, P\&L for one ticker \\
+\addlinespace
+\texttt{Stock} & \texttt{ticker} (global) & Shared instrument metadata (sector, ISIN, \ldots) \\
+\addlinespace
+\texttt{MoodEvent} & \texttt{id} (UUID) & Append-only mood history on User \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{table}[!htbp]
+\centering
+\small
+\caption{Relationships (MVP)}
+\label{tab:rels}
+\begin{tabularx}{\textwidth}{@{}
+  >{\raggedright\arraybackslash}p{0.18\textwidth}
+  >{\raggedright\arraybackslash}p{0.28\textwidth}
+  >{\raggedright\arraybackslash}X
+  @{}}
+\toprule
+\textbf{Type} & \textbf{From $\rightarrow$ To} & \textbf{Notes} \\
+\midrule
+\texttt{OWNS} & User $\rightarrow$ Portfolio & One portfolio per user (MVP) \\
+\addlinespace
+\texttt{HAS\_SECTOR} & Portfolio $\rightarrow$ Sector & Replaced on each ingest \\
+\addlinespace
+\texttt{HOLDS} & Portfolio $\rightarrow$ Holding & Position properties on Holding \\
+\addlinespace
+\texttt{OF} & Holding $\rightarrow$ Stock & Stock may be shared by ticker; access still via User path \\
+\addlinespace
+\texttt{HAD\_MOOD} & User $\rightarrow$ MoodEvent & Written at chat time when confidence gates pass \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\noindent
+\texttt{Stock} nodes are \texttt{MERGE}d globally by ticker; access still requires \texttt{(:User \{id\})-[:OWNS]->(:Portfolio)-[:HOLDS]->}. \texttt{ensure\_schema} applies idempotently at API startup and before ingest:
+
+\begin{verbatim}
+CREATE CONSTRAINT user_id IF NOT EXISTS
+  FOR (u:User) REQUIRE u.id IS UNIQUE
+CREATE CONSTRAINT stock_ticker IF NOT EXISTS
+  FOR (s:Stock) REQUIRE s.ticker IS UNIQUE
+CREATE INDEX stock_isin IF NOT EXISTS FOR (s:Stock) ON (s.isin)
+CREATE INDEX mood_ts IF NOT EXISTS FOR (m:MoodEvent) ON (m.timestamp)
+CREATE INDEX holding_ticker IF NOT EXISTS FOR (h:Holding) ON (h.ticker)
+\end{verbatim}
+
+\noindent
+The holding-ticker index is an as-built addition for user-scoped lookups. Portfolio reads/writes that expose holdings start at the requesting user~\cite{trd}:
+
+\begin{verbatim}
+MATCH (u:User {id: $user_id})-[:OWNS]->(p:Portfolio)
+// further MATCH only from u or p
+\end{verbatim}
+
+\noindent
+Forbidden: global Stock/Holding scan without a path from \texttt{\$user\_id}. Mood persistence \texttt{MATCH}es an existing User$+$Portfolio and never \texttt{MERGE}s a bare User. MVP trust boundary: client-supplied \texttt{user\_id}; host JWT/SSO out of scope~\cite{prd}.
+
+\noindent
+Exemplar holding lookup (as-built in \texttt{services/retrieve.py}):
+
+\begin{verbatim}
+MATCH (u:User {id: $user_id})-[:OWNS]->(:Portfolio)
+      -[:HOLDS]->(h:Holding)-[:OF]->(s:Stock)
+WHERE h.ticker = $ticker OR s.ticker = $ticker
+RETURN h {.*, stock_sector: s.sector, stock_industry: s.industry,
+          exchange: s.exchange, isin: s.isin} AS holding
+\end{verbatim}
+
+\section{JSON mapping, samples, and ingest}
+
+Canonical files live under \texttt{backend/portfolios/\{user\_id\}\_portfolio.json}.
+
+\begin{table}[!htbp]
+\centering
+\small
+\caption{JSON path $\rightarrow$ graph target}
+\label{tab:json-map}
+\begin{tabularx}{\textwidth}{@{}
+  >{\raggedright\arraybackslash}p{0.36\textwidth}
+  >{\raggedright\arraybackslash}X
+  @{}}
+\toprule
+\textbf{JSON path} & \textbf{Graph target} \\
+\midrule
+\texttt{user\_id} (file or \texttt{--user-id}) & \texttt{(:User \{id\})} \\
+\addlinespace
+\texttt{metrics.*} & properties on \texttt{(:Portfolio)} \\
+\addlinespace
+\texttt{sectors[].sector} + metrics & \texttt{(:Sector)} via \texttt{HAS\_SECTOR} \\
+\addlinespace
+\texttt{holdings[].tradingsymbol} & \texttt{(:Stock \{ticker\})} + Holding.\texttt{ticker} \\
+\addlinespace
+exchange, ISIN, sector, industry, market cap, \ldots & Stock properties \\
+\addlinespace
+quantity, prices, P\&L, day change, product, \ldots & Holding properties \\
+\addlinespace
+(not in JSON) & \texttt{(:MoodEvent)} created during chat \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\noindent
+Optional brokerage fields (e.g.\ MTF) may be omitted; snapshot prices stored as-is. Demo tenants: \texttt{demo}, \texttt{u\_alpha}, \texttt{u\_beta} under \texttt{backend/portfolios/\{user\_id\}\_portfolio.json}. Changing \texttt{user\_id} must not leak another tenant's holdings or Redis turns. Ingest: validate \texttt{metrics}/\texttt{sectors}/non-empty \texttt{holdings} with \texttt{tradingsymbol}; \texttt{MERGE} User/Portfolio; \texttt{SET} metrics; replace sectors and Holdings; \texttt{MERGE} Stock globally with \texttt{HOLDS}/\texttt{OF}; idempotent re-run.
+
+\section{Redis short-term memory}
+
+Redis holds only the recent conversation window, not portfolio facts.
+
+\begin{table}[!htbp]
+\centering
+\small
+\caption{Redis memory contract (as-built)}
+\label{tab:redis-mem}
+\begin{tabularx}{\textwidth}{@{}
+  >{\raggedright\arraybackslash}p{0.28\textwidth}
+  >{\raggedright\arraybackslash}X
+  @{}}
+\toprule
+\textbf{Aspect} & \textbf{Value} \\
+\midrule
+Key & \texttt{chat:\{user\_id\}:\{session\_id\}} \\
+\addlinespace
+Value & JSON list of \texttt{\{role, content, ts\}} \\
+\addlinespace
+Cap & last $N$ turns (settings / default 10) \\
+\addlinespace
+TTL & sliding expiry (settings / default 24h) \\
+\addlinespace
+Clear & new \texttt{session\_id} or explicit key delete; does \emph{not} wipe Neo4j \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\reportfigure{fig_10_dual_memory.png}%
+{Dual memory: Redis short-term chat turns vs Neo4j long-term portfolio/mood.}%
+{fig:dual-memory}%
+{Two-store diagram with key format \texttt{chat:\{user\_id\}:\{session\_id\}}.}
+
+\noindent
+Implementation: \texttt{services/memory.py}~\cite{prd}.
+
+\section{GraphRAG pipeline}
+
+\textbf{GraphRAG}: intent $\rightarrow$ user-scoped Cypher subgraph $\rightarrow$ citations $\rightarrow$ template or one LLM call $\rightarrow$ validate---not primary vector similarity search.
+
+\begin{table}[!htbp]
+\centering
+\small
+\caption{Why GraphRAG fits this MVP better than primary vector RAG}
+\label{tab:graphrag-vs-vector}
+\begin{tabularx}{\textwidth}{@{}
+  >{\raggedright\arraybackslash}p{0.22\textwidth}
+  >{\raggedright\arraybackslash}p{0.35\textwidth}
+  >{\raggedright\arraybackslash}X
+  @{}}
+\toprule
+\textbf{Concern} & \textbf{Vector RAG (typical)} & \textbf{This MVP (graph)} \\
+\midrule
+Evidence shape & Unstructured chunks & Typed holdings / metrics / sectors \\
+\addlinespace
+Tenant boundary & Easy to leak via global index & Every MATCH starts at \texttt{user\_id} \\
+\addlinespace
+Numbers / tickers & Hard to attribute & Properties returned with node type \\
+\addlinespace
+Multi-hop asks & Weak without graph & Native path User$\rightarrow$Portfolio$\rightarrow$Holding$\rightarrow$Stock \\
+\addlinespace
+Audit & Similarity score & Citation list of node types + fields \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\noindent
+Principles~\cite{trd}: facts from Neo4j only; mood from classifier; LLM = optional language after evidence; refuse over invent. Intent taxonomy is in Chapter~\ref{ch:requirements}. \texttt{detect\_intent} is deterministic; \texttt{resolve\_ticker} matches the \emph{user's} universe only; \texttt{clarify\_message} short-circuits on no portfolio, unclear intent, or ambiguous/unmatched ticker (e.g.\ ``Adani Power'' $\rightarrow$ \texttt{ADANIPOWER} stays inside the security boundary). \texttt{retrieve\_subgraph} returns \texttt{found=False} without a portfolio; otherwise a minimal slice by intent:
+
+\begin{table}[!htbp]
+\centering
+\small
+\caption{Intent $\rightarrow$ retrieval behaviour (as-built)}
+\label{tab:retrieve-by-intent}
+\begin{tabularx}{\textwidth}{@{}
+  >{\raggedright\arraybackslash}p{0.24\textwidth}
+  >{\raggedright\arraybackslash}X
+  @{}}
+\toprule
+\textbf{Intent} & \textbf{What is retrieved} \\
+\midrule
+\texttt{count\_holdings} & Portfolio metrics (esp.\ \texttt{total\_stocks}); small sample of holdings optional \\
+\addlinespace
+\texttt{top\_performers} & Top holdings ordered by P\&L (limited) \\
+\addlinespace
+\texttt{holding\_lookup} & Single Holding$+$Stock for the resolved ticker \\
+\addlinespace
+\texttt{portfolio\_overview} & Metrics, sectors (when requested), limited holdings list \\
+\addlinespace
+no portfolio & Empty context (\texttt{found=False}) --- upstream clarify usually fires first \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\reportfigure{fig_11_graphrag_pipeline.png}%
+{GraphRAG pipeline: intent $\rightarrow$ Cypher retrieve $\rightarrow$ citations $\rightarrow$ generate $\rightarrow$ guardrails.}%
+{fig:graphrag-pipeline}%
+{Horizontal pipeline diagram.}
+
+\noindent
+Holdings caps (5--15) keep prompts small. Successful retrieve builds \texttt{citations} (Portfolio/Holding/Stock/Sector + fields); refused answers clear citations. Templates use only retrieved fields. Else \texttt{generate\_grounded\_answer}: refuse if \texttt{should\_refuse\_facts}; pack \texttt{CONTEXT}/optional \texttt{MOOD}/turns/\texttt{QUESTION} via \texttt{prompts/system.txt}; \textbf{one} LLM completion; \texttt{validate\_answer}; one retry at temperature~0; then refuse. Mood is not a fact source for quantities or tickers.
+
+\begin{table}[!htbp]
+\centering
+\small
+\caption{Refuse and mitigation paths (as-built)}
+\label{tab:refuse-paths}
+\begin{tabularx}{\textwidth}{@{}
+  >{\raggedright\arraybackslash}p{0.30\textwidth}
+  >{\raggedright\arraybackslash}X
+  @{}}
+\toprule
+\textbf{Trigger} & \textbf{Behaviour} \\
+\midrule
+No portfolio / unclear / bad ticker & Clarify string; \texttt{refused=true}; no LLM \\
+\addlinespace
+Empty retrieval (\texttt{should\_refuse\_facts}) & Fixed refuse text; no LLM \\
+\addlinespace
+Advice-like language in draft & Strip advisory sentences; hard-fail if still present \\
+\addlinespace
+Ungrounded tickers in draft & Refuse (do not ship invented symbols) \\
+\addlinespace
+Ungrounded numbers in draft & Flagged; retry then refuse if still failing \\
+\addlinespace
+LLM hard failure with no holdings & Soft refuse string rather than fabricated book \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\reportfigure{fig_11_guardrails_flow.png}%
+{Guardrails decision flow for grounded answer vs refuse.}%
+{fig:guardrails-flow}%
+{Flowchart: empty retrieval / advice / grounding checks.}
+
+\noindent
+Mitigations: user-scoped Cypher; intent-minimal retrieve; citations; template-first answers; post-generation ticker/number/advice checks with refuse-on-fail; mood separated from facts.

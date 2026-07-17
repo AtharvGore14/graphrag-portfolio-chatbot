@@ -1,0 +1,339 @@
+% ============================================================
+% MAIN DOCUMENT — compile this file only
+% ============================================================
+%   main.tex              ← packages + cover + front matter + refs
+%   chapters/ch01..ch11   ← consolidated chapter files
+%   chapters/appendix.tex ← appendices
+%   images/               ← logo, screenshots
+% ============================================================
+
+\documentclass[12pt,a4paper]{report}
+
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{placeins}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{tabularx}
+\usepackage{microtype}
+\usepackage{setspace}
+\onehalfspacing
+
+\usepackage{xcolor}
+\usepackage{hyperref}
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!50!black,
+  urlcolor=blue!50!black,
+  citecolor=blue!50!black,
+  pdftitle={Portfolio GraphRAG Chatbot --- Software Engineering Design Document},
+  pdfauthor={Atharv Gore, Aayush Lathi, Mayank Goplani, Dnyanraj Gore}
+}
+
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small Portfolio GraphRAG Chatbot}
+\fancyhead[R]{\small AlgoFabric --- SEDD}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+\fancypagestyle{plain}{%
+  \fancyhf{}%
+  \fancyfoot[C]{\thepage}%
+  \renewcommand{\headrulewidth}{0pt}%
+}
+
+\usepackage{tocloft}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{listings}
+\usepackage{enumitem}
+\usepackage{appendix}
+\usepackage{amsmath}
+
+\lstset{
+  language=Python,
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue!60!black},
+  commentstyle=\color{green!50!black},
+  stringstyle=\color{red!50!black},
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  frame=single,
+  breaklines=true,
+  showstringspaces=false,
+  tabsize=2
+}
+
+\graphicspath{{images/}}
+
+% ------------------------------------------------------------
+% Figure helper: real image if present, else placeholder box.
+% Usage: \reportfigure{file.png}{Caption}{fig:label}{Hint for teammates}
+% ------------------------------------------------------------
+\newcommand{\reportfigure}[4]{%
+  \begin{figure}[!htbp]
+    \centering
+    \IfFileExists{images/#1}{%
+      \includegraphics[width=0.85\textwidth]{#1}%
+    }{%
+      \fbox{%
+        \begin{minipage}{0.85\textwidth}
+          \centering
+          \vspace{0.7cm}
+          {\bfseries [Image pending]}\\[0.35em]
+          {\small\ttfamily #1}\\[0.25em]
+          {\footnotesize #4}
+          \vspace{0.7cm}
+        \end{minipage}%
+      }%
+    }%
+    \caption{#2}
+    \label{#3}
+  \end{figure}
+}
+
+% College / institute logo (matches Overleaf file: images/01_college_logo.png)
+\newcommand{\collegelogo}{%
+  \IfFileExists{images/01_college_logo.png}{%
+    \includegraphics[width=0.22\textwidth]{01_college_logo.png}%
+  }{%
+    \IfFileExists{images/01_college_logo.jpg}{%
+      \includegraphics[width=0.22\textwidth]{01_college_logo.jpg}%
+    }{%
+      \IfFileExists{images/01_collegelogo.png}{%
+        \includegraphics[width=0.22\textwidth]{01_collegelogo.png}%
+      }{%
+        \fbox{\parbox{0.28\textwidth}{\centering\vspace{0.55cm}\small College logo pending\\\texttt{01\_college\_logo.png}\vspace{0.55cm}}}%
+      }%
+    }%
+  }%
+}
+
+\begin{document}
+
+% ============================================================
+% COVER PAGE --- professional (names only)
+% ============================================================
+\begin{titlepage}
+\centering
+\vspace*{1.2cm}
+
+\collegelogo
+
+\vspace{1.0em}
+
+{\Huge\bfseries Portfolio GraphRAG Chatbot}
+
+\vspace{0.6em}
+{\LARGE Software Engineering Design \& Development Document}
+
+\vspace{1.6em}
+{\large Industry Sponsored Project}
+
+\vspace{0.35em}
+{\large AlgoFabric \quad$\vert$\quad Vishwakarma Institute of Technology, Pune}
+
+\vspace{2.2em}
+
+\begin{tabular}{@{}ll@{}}
+\toprule
+Document ID & AF-CHATBOT-SEDD \\
+Status & Final \\
+\bottomrule
+\end{tabular}
+
+\vspace{2em}
+
+{\large\bfseries Prepared by}
+
+\vspace{0.8em}
+\begin{tabular}{c}
+Atharv Gore \\[0.35em]
+Aayush Lathi \\[0.35em]
+Mayank Goplani \\[0.35em]
+Dnyanraj Gore \\
+\end{tabular}
+
+\vspace{0.45em}
+{\small B.Tech.\ Students, Vishwakarma Institute of Technology, Pune}
+
+\vspace{2em}
+
+\begin{tabular}{@{}ll@{}}
+Faculty Guide & Prof.\ Rakhi Bharadwaj \\
+Industry Partner & AlgoFabric \\
+\end{tabular}
+
+\vfill
+{\large \today}
+\end{titlepage}
+
+% ============================================================
+% FRONT MATTER
+% ============================================================
+\pagenumbering{roman}
+\setcounter{page}{1}
+
+\chapter*{Document Control}
+\addcontentsline{toc}{chapter}{Document Control}
+
+\noindent
+Document identity and authorship for configuration control. Institutional identifiers required for academic submission are recorded here and intentionally kept off the cover page.
+
+\vspace{1em}
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\toprule
+\textbf{Field} & \textbf{Value} \\
+\midrule
+Document title & Portfolio GraphRAG Chatbot --- Software Engineering Design \& Development Document \\
+Document ID & AF-CHATBOT-SEDD \\
+Organization & AlgoFabric \\
+Institution & Vishwakarma Institute of Technology (VIT), Pune \\
+Project type & Industry Sponsored Project \\
+Faculty Guide & Prof.\ Rakhi Bharadwaj \\
+Classification & Joint industry--academic engineering deliverable \\
+\bottomrule
+\end{tabularx}
+
+\vspace{1.2em}
+\noindent\textbf{Author team}
+
+\vspace{0.5em}
+\begin{tabularx}{\textwidth}{@{}lllX@{}}
+\toprule
+\textbf{Name} & \textbf{PRN} & \textbf{Roll} & \textbf{Email} \\
+\midrule
+Atharv Gore & 12411277 & D-64 & atharv.gore24@vit.edu \\
+Aayush Lathi & 12415013 & D-77 & aayush.lathi242@vit.edu \\
+Mayank Goplani & 12413197 & D-62 & mayank.goplani24@vit.edu \\
+Dnyanraj Gore & 12414624 & D-65 & dnyanraj.gore24@vit.edu \\
+\bottomrule
+\end{tabularx}
+
+\chapter*{Acknowledgement}
+\addcontentsline{toc}{chapter}{Acknowledgement}
+
+\noindent
+We thank \textbf{AlgoFabric} for sponsoring this Industry Sponsored Project under the GenAI initiative, and our Faculty Guide, \textbf{Prof.\ Rakhi Bharadwaj}, Vishwakarma Institute of Technology, Pune, for academic oversight. We also acknowledge AlgoFabric mentoring via scrum and sync meetings, and VIT Pune for enabling the partnership. Any omissions remain our responsibility.
+
+\chapter*{Executive Summary}
+\addcontentsline{toc}{chapter}{Executive Summary}
+
+\noindent
+Investors need trusted answers about \emph{their own} holdings---quantities, sectors, allocation, P\&L---without navigating portfolio screens, plus an auditable mood signal, without invented positions or buy/sell advice. This AlgoFabric Industry Sponsored Project (VIT Pune) delivers that on the GenAI Chatbot track, distinct from NL screening and backtesting agents.
+
+\vspace{0.85em}
+\noindent
+The team built an \textbf{API-first} system that answers only from an ingested \textbf{Neo4j} portfolio graph (user-scoped Cypher GraphRAG), detects mood with \textbf{DistilRoBERTa} (not the LLM), keeps short-term context in \textbf{Redis}, and refuses empty retrieval and advisory language. Orchestration is hand-rolled and packaged with \textbf{Docker Compose}, idempotent JSON ingest, tests, and a minimal test page.
+
+\vspace{0.85em}
+\noindent
+The MVP ships \texttt{POST /chat}, \texttt{GET /health}, citations, mood gating, dual memory, and sample portfolios (\texttt{demo}, \texttt{u\_alpha}, \texttt{u\_beta}). Live market feeds, host SSO/JWT, vector-DB RAG, full consumer UI, and sibling-agent orchestration were out of scope; Planned items include semantic cache, streaming, LLM observability, and horizontal API scale.
+
+\tableofcontents
+\newpage
+
+\chapter*{Abbreviations}
+\addcontentsline{toc}{chapter}{Abbreviations}
+
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\toprule
+\textbf{Abbr.} & \textbf{Expansion} \\
+\midrule
+API & Application Programming Interface \\
+CI & Continuous Integration \\
+FR & Functional Requirement \\
+GraphRAG & Graph Retrieval-Augmented Generation \\
+HF & Hugging Face \\
+LLM & Large Language Model \\
+MVP & Minimum Viable Product \\
+NFR & Non-Functional Requirement \\
+PRD & Product Requirements Document \\
+RAG & Retrieval-Augmented Generation \\
+SEDD & Software Engineering Design \& Development Document \\
+TRD & Technical Requirements Document \\
+TTL & Time To Live \\
+UI & User Interface \\
+VIT & Vishwakarma Institute of Technology \\
+\bottomrule
+\end{tabularx}
+
+\newpage
+
+% ============================================================
+% CHAPTERS
+% ============================================================
+\pagenumbering{arabic}
+\setcounter{page}{1}
+
+\input{chapters/ch01_journey}
+\input{chapters/ch02_introduction}
+\input{chapters/ch03_requirements}
+\input{chapters/ch04_architecture}
+\input{chapters/ch05_data_and_graphrag}
+\input{chapters/ch06_implementation}
+\input{chapters/ch07_features}
+\input{chapters/ch08_testing}
+\input{chapters/ch09_deployment}
+\input{chapters/ch10_challenges_and_future}
+\input{chapters/ch11_conclusion}
+
+\begin{appendices}
+\input{chapters/appendix}
+\end{appendices}
+
+\begin{thebibliography}{99}
+
+\bibitem{readme}
+Portfolio GraphRAG Chatbot Repository README.
+\textit{graphrag-portfolio-chatbot} (local project documentation).
+
+\bibitem{prd}
+AlgoFabric Chatbot Team.
+Product Requirements Document (\texttt{planning/01-PRD.md}).
+
+\bibitem{trd}
+AlgoFabric Chatbot Team.
+Technical Requirements Document (\texttt{planning/02-TRD.md}).
+
+\bibitem{neo4j}
+Neo4j Documentation.
+\url{https://neo4j.com/docs/}
+
+\bibitem{fastapi}
+FastAPI Documentation.
+\url{https://fastapi.tiangolo.com/}
+
+\bibitem{redis}
+Redis Documentation.
+\url{https://redis.io/docs/}
+
+\bibitem{transformers}
+Hugging Face Transformers Documentation.
+\url{https://huggingface.co/docs/transformers}
+
+\bibitem{distilroberta}
+Hartmann, J.
+\textit{emotion-english-distilroberta-base}.
+\url{https://huggingface.co/j-hartmann/emotion-english-distilroberta-base}
+
+\bibitem{groq}
+Groq API Documentation.
+\url{https://console.groq.com/docs}
+
+\bibitem{algofabric-web}
+AlgoFabric.
+\url{https://algofabric.algoanalytics.com/}
+
+\bibitem{algoanalytics-products}
+AlgoAnalytics.
+Products --- AlgoFabric.
+\url{https://www.algoanalytics.com/Products}
+
+\end{thebibliography}
+
+\end{document}

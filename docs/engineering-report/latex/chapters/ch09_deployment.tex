@@ -1,0 +1,84 @@
+\chapter{Deployment}
+\label{ch:deployment}
+
+Implemented operator runbook: Compose bring-up, environment, ingest, health, and volume reset. Stack pins and architecture wiring are in Chapter~\ref{ch:architecture}. Production cloud hosting is \textbf{Future Scope} only.
+
+\section{Prerequisites and configuration}
+
+Docker Desktop (or Engine + Compose plugin); commands from the \textbf{repository root} (directory with \texttt{docker-compose.yml})~\cite{readme}; network to pull images and (first run) Hugging Face mood weights / LLM provider; a valid OpenAI-compatible API key (Groq for default MVP settings).
+
+Copy the template and edit secrets locally---never commit \texttt{.env}: \texttt{copy .env.example .env} (Windows) or \texttt{cp .env.example .env} (Unix).
+
+\begin{table}[!htbp]
+\centering
+\small
+\caption{Environment groups (\texttt{.env.example})}
+\label{tab:env-groups}
+\begin{tabularx}{\textwidth}{@{}
+  >{\raggedright\arraybackslash}p{0.22\textwidth}
+  >{\raggedright\arraybackslash}X
+  @{}}
+\toprule
+\textbf{Group} & \textbf{Variables (summary)} \\
+\midrule
+LLM & \texttt{LLM\_API\_KEY}, \texttt{LLM\_BASE\_URL}, \texttt{LLM\_MODEL} \\
+\addlinespace
+Neo4j & \texttt{NEO4J\_URI}, \texttt{NEO4J\_USER}, \texttt{NEO4J\_PASSWORD} \\
+\addlinespace
+Redis & \texttt{REDIS\_URL} \\
+\addlinespace
+Mood & \texttt{MOOD\_MODEL}, \texttt{MOOD\_CONFIDENCE\_THRESHOLD} \\
+\addlinespace
+Memory & \texttt{CHAT\_MEMORY\_MAX\_TURNS}, \texttt{CHAT\_MEMORY\_TTL\_SECONDS} \\
+\addlinespace
+API & \texttt{API\_HOST}, \texttt{API\_PORT} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\reportfigure{S13_env_example_redacted.png}%
+{Environment configuration template (\texttt{.env.example}) with secrets redacted.}%
+{fig:env}%
+{Screenshot .env.example; never show real API keys.}
+
+\noindent
+Compose overrides \texttt{NEO4J\_URI} / \texttt{REDIS\_URL} to service DNS; the password in \texttt{.env} must still match Neo4j auth.
+
+\section{Compose bring-up and ingest}
+
+\begin{enumerate}[leftmargin=*]
+  \item Ensure Docker is running; \texttt{cd} to project root.
+  \item Configure \texttt{.env}.
+  \item \texttt{docker compose up --build} (or \texttt{-d} detached).
+  \item Wait until \texttt{neo4j} and \texttt{redis} are healthy and the API finishes mood warm-up (first boot may download model weights into the HF cache volume).
+  \item Confirm with \texttt{docker compose ps} and \texttt{GET /health} (Figure~\ref{fig:health} in Chapter~\ref{ch:architecture}).
+\end{enumerate}
+
+\noindent
+URLs after start~\cite{readme}: Test UI \texttt{http://localhost:8000/}; Health \texttt{http://localhost:8000/health}; OpenAPI/Swagger \texttt{http://localhost:8000/docs}; Neo4j Browser \texttt{http://localhost:7474}.
+
+Chat facts require ingest. After Compose is healthy: \texttt{docker compose exec api python /scripts/ingest\_portfolio.py --all} (or \texttt{--file /app/portfolios/demo\_portfolio.json}). Re-runs are idempotent (Chapter~\ref{ch:database}). On the test page, set \texttt{user\_id} to \texttt{demo} (or \texttt{u\_alpha} / \texttt{u\_beta}).
+
+\reportfigure{S09_ingest_cli.png}%
+{First-time (or refresh) data ingest after Compose is up.}%
+{fig:deploy-ingest}%
+{Ingest CLI.}
+
+\section{Operations}
+
+Health: \texttt{GET /health} --- Neo4j, Redis, mood readiness. Optional: \texttt{docker compose exec api python /scripts/verify\_chat.py} (Chapter~\ref{ch:testing}). Inspect graph in Neo4j Browser (\texttt{localhost:7474}) with credentials from \texttt{.env}.
+
+\reportfigure{S08_neo4j_subgraph.png}%
+{Operator view of portfolio graph in Neo4j Browser.}%
+{fig:deploy-neo4j}%
+{Neo4j Browser.}
+
+\noindent
+Stop/reset: \texttt{docker compose down} --- stop/remove containers; volumes usually retained. \texttt{docker compose down -v} --- full reset (deletes Neo4j/Redis data volumes). \texttt{docker compose ps} --- status. After \texttt{down -v}, re-run ingest before expecting grounded chat.
+
+\section{Caveats and production direction}
+
+MVP caveats: auth-lite (clients supply \texttt{user\_id}; no host JWT/SSO)~\cite{prd,trd}; secrets only in \texttt{.env}/environment (redact in screenshots); CORS open for the test page---tighten for shared deployment; default Neo4j password in the example must change for non-local use; LLM spend/rate limits are operator-owned.
+
+\label{sec:prod-future}
+The Implemented packaging contract stops at Compose handoff. A production sketch (not delivered) may reuse the same API image on managed containers, with Neo4j/Redis moved to managed services when operations demand it~\cite{trd}. Autoscaling, SSO, CI/CD, and hardened networking are out of the MVP deliverable---see Chapter~\ref{ch:future}.

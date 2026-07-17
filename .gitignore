@@ -7,3 +7,13 @@ venv/
 .mypy_cache/
 *.egg-info/
 .DS_Store
+*.aux
+*.log
+*.out
+*.toc
+*.lof
+*.lot
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+latex_code.zip

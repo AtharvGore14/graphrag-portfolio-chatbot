@@ -1,0 +1,40 @@
+\chapter{Challenges, Learning, and Future Scope}
+\label{ch:challenges}
+\label{ch:learning}
+\label{ch:future}
+
+\section{Challenges and responses}
+
+Sourced challenges (meetings, Action Items, TRD risks) and repository responses. Residual Open actions stay labelled Open.
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{C-01 --- No early industry Chatbot playground / one-pager / dedicated demo} (Meetings~01--03; A-01--A-03). Impact: early industry-hosted exploration blocked; domain work proceeded first~\cite{readme}. Response: API-first MVP in the planning pack; Compose handoff with minimal test UI. A-01--A-03 remain \textbf{Open}---not claimed as delivered.
+  \item \textbf{C-02 --- Domain literacy before build} (Meetings~02--03; A-08). Response: Excel-first literacy (Chapter~\ref{ch:finance}); answers constrained to ingested snapshot fields---not live Sharpe/alpha recomputation.
+  \item \textbf{C-03 --- Financial hallucination and advisory language} (PRD/TRD). Response: user-scoped GraphRAG; template-first answers; refuse-on-empty; citations; advice filters and ungrounded ticker/number checks.
+  \item \textbf{C-04 --- Cross-user leakage if graph reads unscoped} (TRD). Response: Cypher start at \texttt{(:User \{id: \$user\_id\})}; multi-user samples; isolation / no-orphan-User verify scripts.
+  \item \textbf{C-05 --- Mood cold start and LLM latency vs $<$2\,s target} (TRD §11). Response: warm mood at lifespan; HF cache; parallel mood/retrieve/memory; token cap; single LLM call (or zero with templates). Latency remains a \textbf{design target} unless measured evidence is attached.
+  \item \textbf{C-06 --- Auth-lite trust in raw \texttt{user\_id}} (TRD §11; PRD non-goal). Response: documented trust boundary; host JWT/SSO is Future Scope---not claimed Implemented.
+  \item \textbf{C-07 --- Large holdings prompts; snapshot filename with spaces} (TRD §11). Response: intent-minimal retrieve with holdings limits; per-user JSON under \texttt{backend/portfolios/}; ingest supports configured paths including legacy spaced filenames.
+  \item \textbf{C-08 --- Team progress visibility} (Meeting~03; A-06--A-07). Response: meeting notes, Action Items, Timeline; process obligations tracked as Open/ongoing where not formally closed.
+\end{itemize}
+
+\noindent
+\textbf{Residual:} A-01--A-03 (and related A-04--A-09 as logged) still Open; residual risks include LLM provider variance, auth-lite until SSO, no in-repo CI. Industry-hosted playground demos never granted are not claimed solved.
+
+\section{Learning outcomes}
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Finance} --- portfolio/holdings/sector structure, snapshot P\&L, returns/risk vocabulary; why inventing Sharpe/live risk in chat is unsafe. Evidence: Chapter~\ref{ch:finance}; Meetings~02--03; Excel tasks; PRD data lock.
+  \item \textbf{Software engineering} --- PRD/TRD lock, phased build, Implemented/Planned/Future labels. Evidence: Chapter~\ref{ch:requirements}; \texttt{planning/}; STATUS.md.
+  \item \textbf{Backend / FastAPI} --- thin HTTP edge, single orchestrator, mood $\neq$ LLM, single LLM gateway; OpenAPI + Pydantic; 4xx/503 fail-closed. Evidence: Chapter~\ref{ch:backend}; \texttt{services/*}; \texttt{schemas.py}; \texttt{routes\_chat.py}.
+  \item \textbf{Neo4j / Redis / GraphRAG} --- user-anchored graph, constraints, idempotent ingest, \texttt{user\_id} Cypher; graph vs vector RAG for MVP; citations and refuse/guardrails; Redis capped TTL turn window. Evidence: Chapters~\ref{ch:stack},~\ref{ch:database}.
+  \item \textbf{Docker / testing / docs} --- Compose handoff (CPU Torch, HF cache, healthchecks); unit + \texttt{verify\_*} without inventing pass counts; dual docs layers and honest Open industry actions. Evidence: Chapters~\ref{ch:deployment},~\ref{ch:testing},~\ref{ch:journey}; \texttt{docs/meetings/}; Action\_Items.md.
+\end{itemize}
+
+\section{Future Scope (not Implemented)}
+
+\textbf{Planned} (next increment after MVP)~\cite{prd}: semantic cache for repeat questions (must not bypass \texttt{user\_id} or serve stale facts after re-ingest); streaming responses (still one retrieval + one generation with same guardrail end-state); LLM I/O observability (e.g.\ Langfuse); horizontal API scaling (stateless replicas; Redis shared short-term memory)~\cite{trd}. None required to claim MVP success for US-1--US-6.
+
+\textbf{Future Scope}~\cite{prd}: host-platform SSO/JWT; richer portfolio entities (transactions, historical snapshots); managed Neo4j/Redis at scale. Also excluded unless a later PRD revises the lock: live market feeds, vector-DB RAG as \emph{primary} retrieval, LangChain-style multi-agent loops. Sibling GenAI orchestration (screening/backtesting) is Future Scope / sibling coordination---not this MVP.
+
+\textbf{Engineering hardening gaps:} no in-repo CI/CD (Compose + pytest/\texttt{verify\_*} today); managed production hosting is a TRD sketch only~\cite{trd}; \texttt{docs/testing/*} templates need populated runs; tighten open CORS and example passwords before shared environments.

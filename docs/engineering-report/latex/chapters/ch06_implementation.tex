@@ -1,0 +1,179 @@
+\chapter{Implementation}
+\label{ch:backend}
+\label{ch:workflow}
+\label{ch:api}
+
+\section{Backend modules}
+
+Package layout under \texttt{backend/app/}: \texttt{main.py} (app factory, lifespan, \texttt{/health}, static mount); \texttt{config.py} (typed settings from environment); \texttt{api/routes\_chat.py} (\texttt{POST /chat} adapter); \texttt{models/schemas.py} (Pydantic contracts); \texttt{services/*} (domain logic); \texttt{prompts/system.txt} (LLM system prompt).
+
+\texttt{main.py} opens Neo4j and Redis, runs \texttt{ensure\_schema}, warms DistilRoBERTa, and closes on shutdown. CORS is permissive for the test page; static \texttt{web/} mounts last so API routes win. \texttt{config.py} exposes cached \texttt{Settings}: LLM endpoint/model/token cap, Neo4j Bolt credentials, Redis URL, mood model id and confidence threshold, chat-memory window/TTL. No service hard-codes provider URLs or secrets.
+
+\texttt{routes\_chat.py} is a thin adapter: validate \texttt{ChatRequest}; mint \texttt{session\_id} when omitted; HTTP 503 if mood not ready or Neo4j down; call \texttt{run\_chat\_turn}; map \texttt{RuntimeError} dependency/LLM failures to 503. Business branching stays in the orchestrator.
+
+\reportfigure{fig_12_module_collab.png}%
+{Backend module collaboration around \texttt{chat.py} orchestration.}%
+{fig:module-collab}%
+{Dependency diagram of services/*.py.}
+
+\paragraph{Service ownership.}
+\texttt{chat.py} owns the turn state machine (intent; parallel mood/Redis/universe; clarify; retrieve; template or generate; persist). \texttt{intent.py} owns deterministic labels and ticker resolution against a provided universe---no Neo4j or LLM. \texttt{retrieve.py} owns user-scoped Cypher and \texttt{retrieve\_subgraph} (metrics, sectors, holdings, citations); every query starts at \texttt{(:User \{id\})}. \texttt{mood.py} owns DistilRoBERTa loading/classification and MoodEvent persistence (confidence gate; never creates orphan users); mood never calls \texttt{llm\_client}. \texttt{memory.py} owns Redis key \texttt{chat:\{user\_id\}:\{session\_id\}}, get/append/clear, turn cap, TTL---conversational text only. \texttt{generate.py} owns non-templated answers (refuse-on-empty, one completion, validate, strict retry). \texttt{llm\_client.py} is the \textbf{single LLM gateway}---all OpenAI-SDK calls via \texttt{chat\_completion}; configured from settings (\texttt{base\_url} enables Groq now / OpenAI later); loads \texttt{prompts/system.txt}~\cite{trd}. \texttt{guardrails.py} owns refuse constants, advice stripping, ungrounded ticker/number checks, \texttt{validate\_answer}, \texttt{should\_refuse\_facts}, and prompt packing. \texttt{schema.py} / \texttt{ingest.py} apply constraints and upsert JSON offline from the CLI, not from chat.
+
+\noindent
+Grounded turn collaboration: \texttt{routes\_chat} $\rightarrow$ \texttt{chat.run\_chat\_turn}; parallel \texttt{intent}/\texttt{mood}/\texttt{memory}/\texttt{retrieve}; optional clarify; \texttt{retrieve\_subgraph}; template in \texttt{chat} or \texttt{generate}$\rightarrow$\texttt{llm\_client}$\rightarrow$\texttt{guardrails}; append turns; gated MoodEvent. Invariants: mood $\neq$ LLM; one LLM gateway; one orchestrator; settings-driven I/O; thin HTTP.
+
+\section{Application journeys}
+
+Host login is out of flow; every journey assumes a known \texttt{user\_id}~\cite{prd}. Journeys J1--J5 are acceptance outcomes from Chapter~\ref{ch:requirements}.
+
+\paragraph{J1 --- Ingest.}
+Engineer/operator: choose a file under \texttt{backend/portfolios/} (or \texttt{--all}); CLI validates JSON shape; connect to Neo4j; ensure constraints; upsert User $\rightarrow$ Portfolio $\rightarrow$ Sector/Holding/Stock; exit with counts (idempotent re-run). Fail closed on missing file, invalid JSON, or Neo4j down.
+
+\paragraph{J2 --- Chat happy path.}
+Client sends \texttt{user\_id}, message, optional \texttt{session\_id} to \texttt{POST /chat}; API validates and checks Neo4j/mood (else 503); intent; parallel mood/Redis/universe; user-scoped retrieve; template or one guarded LLM call; persist; return 200 with answer, mood, citations, \texttt{refused=false}. Example: \texttt{user\_id=demo}, ``How many ADANIPOWER shares do I hold?'' $\rightarrow$ quantity/average from snapshot, not live market.
+
+\paragraph{J3 --- Multi-turn dual memory.}
+Follow-ups reload Redis turns under \texttt{chat:\{user\_id\}:\{session\_id\}} and run a new user-scoped Cypher retrieve. New \texttt{session\_id} clears short-term context; Neo4j portfolio is unchanged. Changing \texttt{user\_id} must not leak another tenant. Neo4j does not store the full chat transcript in MVP---only portfolio data and gated MoodEvents.
+
+\paragraph{J4 --- Refuse and clarify.}
+No portfolio $\rightarrow$ clarify to ingest / try \texttt{demo}; unclear intent $\rightarrow$ suggest examples; ambiguous/unmatched ticker $\rightarrow$ ask which ticker; empty retrieval $\rightarrow$ fixed refuse; LLM draft fails ticker/number/advice checks after retry $\rightarrow$ refuse. Mood payload may still be present; citations empty when \texttt{refused=true}.
+
+\paragraph{J5 --- Mood and facts.}
+High/low mood confidence combines with hit/miss retrieval: answer + mood + citations when evidence hits; refuse facts + mood when miss. Mood never blocks a grounded factual answer; facts never invent mood~\cite{prd,trd}.
+
+\begin{table}[!htbp]
+\centering
+\small
+\caption{Workflow edge cases (as-built handling)}
+\label{tab:workflow-edges}
+\begin{tabularx}{\textwidth}{@{}
+  >{\raggedright\arraybackslash}p{0.32\textwidth}
+  >{\raggedright\arraybackslash}X
+  @{}}
+\toprule
+\textbf{Edge} & \textbf{Handling} \\
+\midrule
+Empty / invalid message & HTTP 422 validation \\
+\addlinespace
+Neo4j down & HTTP 503; no LLM invention from training knowledge \\
+\addlinespace
+Redis unavailable & Chat may proceed without short-term context; portfolio path still required for facts \\
+\addlinespace
+LLM failure with graph hit & Prefer template path when available; else 503 / refuse---never free-form invent \\
+\addlinespace
+Session too long & Redis window truncated to last $N$ turns \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\noindent
+Explicit non-flows: host login/token exchange, live price refresh, buy/sell or recommendation flows, admin UI for ingest~\cite{prd}.
+
+\section{API contract}
+
+The product is a JSON HTTP API; a host UI or the shipped test page is a client. FastAPI auto-generates OpenAPI from Pydantic models (\texttt{/docs}, \texttt{/openapi.json})~\cite{fastapi}. Auth-lite MVP: non-empty \texttt{user\_id} (max 128 after trim); graph scoped to that id; no role model; host JWT/SSO out of scope; secrets server-side only~\cite{prd,trd}.
+
+\begin{table}[!htbp]
+\centering
+\small
+\caption{\texttt{GET /health} response fields (as-built)}
+\label{tab:api-health}
+\begin{tabularx}{\textwidth}{@{}
+  >{\raggedright\arraybackslash}p{0.22\textwidth}
+  >{\raggedright\arraybackslash}X
+  @{}}
+\toprule
+\textbf{Field} & \textbf{Semantics} \\
+\midrule
+\texttt{neo4j} & \texttt{true} if Bolt \texttt{verify\_connectivity} succeeds \\
+\addlinespace
+\texttt{redis} & \texttt{true} if \texttt{PING} succeeds \\
+\addlinespace
+\texttt{mood} & \texttt{true} if classifier warmed at lifespan \\
+\addlinespace
+\texttt{status} & \texttt{ok} if all three true; else \texttt{degraded} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\noindent
+As-built note: planning samples sometimes omitted \texttt{mood}; the Implemented endpoint always returns it. Primary conversational endpoint: \texttt{POST /chat} (\texttt{api/routes\_chat.py}; \texttt{ChatRequest} / \texttt{ChatResponse}).
+
+\reportfigure{fig_14_api_anatomy.png}%
+{Request/response anatomy for \texttt{POST /chat}.}%
+{fig:api-anatomy}%
+{Labeled JSON request/response diagram.}
+
+\begin{table}[!htbp]
+\centering
+\small
+\caption{\texttt{ChatRequest} fields}
+\label{tab:chat-request}
+\begin{tabularx}{\textwidth}{@{}
+  >{\raggedright\arraybackslash}p{0.18\textwidth}
+  >{\raggedright\arraybackslash}p{0.16\textwidth}
+  >{\raggedright\arraybackslash}X
+  @{}}
+\toprule
+\textbf{Field} & \textbf{Required} & \textbf{Validation / behaviour} \\
+\midrule
+\texttt{user\_id} & Yes & Non-empty string after strip; max 128 \\
+\addlinespace
+\texttt{message} & Yes & Non-empty string after strip; max 2000 \\
+\addlinespace
+\texttt{session\_id} & No & Max 128; if absent/blank, server mints a UUID \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{table}[!htbp]
+\centering
+\small
+\caption{\texttt{ChatResponse} fields}
+\label{tab:chat-response}
+\begin{tabularx}{\textwidth}{@{}
+  >{\raggedright\arraybackslash}p{0.18\textwidth}
+  >{\raggedright\arraybackslash}X
+  @{}}
+\toprule
+\textbf{Field} & \textbf{Semantics} \\
+\midrule
+\texttt{answer} & Grounded text, clarify copy, or fixed refuse string \\
+\addlinespace
+\texttt{mood} & Object: \texttt{label} (nullable), \texttt{confidence}, \texttt{insufficient\_signal} \\
+\addlinespace
+\texttt{citations} & List of source descriptors (node type, ticker/name, fields); empty when refused \\
+\addlinespace
+\texttt{refused} & \texttt{true} when facts were not shipped (clarify/empty/guardrail fail) \\
+\addlinespace
+\texttt{session\_id} & Echo of the session used for Redis memory (minted or client-supplied) \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\noindent
+Status codes: \textbf{200} --- turn completed (grounded \emph{or} refused/clarify); \textbf{422} --- Pydantic validation failure (as-built FastAPI behaviour; \texttt{verify\_chat.py} asserts this); \textbf{503} --- mood not ready, Neo4j unavailable, or hard LLM/dependency failure. Ingest is not an HTTP MVP endpoint: operators use \texttt{scripts/ingest\_portfolio.py}.
+
+\noindent
+Illustrative response shapes (numbers from the ingested \texttt{demo} snapshot, not live market):
+
+\begin{verbatim}
+# Grounded (200): refused=false; citations non-empty
+{"answer":"...ADANIPOWER...","mood":{"label":"neutral","confidence":0.72,
+ "insufficient_signal":false},"citations":[{"type":"Holding","ticker":"ADANIPOWER",
+ "fields":["quantity","average_price","last_price","pnl"]}],
+ "refused":false,"session_id":"..."}
+
+# Refuse (200): refused=true; citations=[]
+{"answer":"I don't have that data in your portfolio graph.",
+ "mood":{"label":null,"confidence":0.31,"insufficient_signal":true},
+ "citations":[],"refused":true,"session_id":"..."}
+\end{verbatim}
+
+\reportfigure{S03_swagger_docs.png}%
+{Swagger UI documenting the chat API.}%
+{fig:swagger}%
+{Open \texttt{/docs}.}
+
+\noindent
+Test UI under \texttt{web/} (\texttt{index.html}, \texttt{app.js}) is a harness, not a product UI~\cite{prd}: collect \texttt{user\_id}/message/session; \texttt{POST /chat}; render answer, mood, citations, \texttt{refused}; reuse \texttt{session\_id} for multi-turn.

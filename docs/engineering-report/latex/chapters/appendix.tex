@@ -1,0 +1,42 @@
+\chapter{Appendix --- Evidence Index}
+\label{app:screenshots}
+
+Compact evidence index for the SEDD. Screenshots appear in the chapters cited below; this appendix does not repeat them.
+
+\begin{table}[!htbp]
+\centering
+\small
+\caption{Essential evidence map}
+\label{tab:app-screenshots}
+\begin{tabularx}{\textwidth}{@{}
+  >{\raggedright\arraybackslash}p{0.30\textwidth}
+  >{\raggedright\arraybackslash}X
+  @{}}
+\toprule
+\textbf{Filename} & \textbf{Shown in} \\
+\midrule
+\texttt{S01\_compose\_healthy.png} & Chapter~\ref{ch:architecture} \\
+\texttt{S02\_health\_json.png} & Chapter~\ref{ch:architecture} \\
+\texttt{S03\_swagger\_docs.png} & Chapter~\ref{ch:api} \\
+\texttt{S05\_ui\_grounded\_answer.png} & Chapter~\ref{ch:features} \\
+\texttt{S06\_ui\_refuse.png} & Chapter~\ref{ch:features} \\
+\texttt{S08\_neo4j\_subgraph.png} & Chapter~\ref{ch:deployment} \\
+\texttt{S09\_ingest\_cli.png} & Chapter~\ref{ch:deployment} \\
+\texttt{S10\_pytest.png}, \texttt{S11\_verify\_scripts.png} & Chapter~\ref{ch:testing} \\
+\texttt{S13\_env\_example\_redacted.png} & Chapter~\ref{ch:deployment} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Repository layout (handoff)}
+
+\begin{verbatim}
+graphrag-portfolio-chatbot/
+  backend/app/   # main, routes, services, schemas, prompts
+  backend/portfolios/   # demo, u_alpha, u_beta
+  web/  scripts/  tests/  planning/
+  docker-compose.yml  .env.example  README.md
+\end{verbatim}
+
+\noindent
+Primary sources: root \texttt{README.md}; \texttt{planning/01-PRD.md}; \texttt{planning/02-TRD.md}; \texttt{planning/05-backend-schema.md}. Meetings: \texttt{docs/meetings/Meeting\_01\_Kickoff.md}--\texttt{Meeting\_03.md}. Security Cypher pattern and JSON$\rightarrow$graph mapping: Chapter~\ref{ch:database}. Field contracts: Chapter~\ref{ch:api}, Tables~\ref{tab:chat-request} and~\ref{tab:chat-response}. Regression queries: Chapter~\ref{ch:testing}, Table~\ref{tab:sample-queries}.

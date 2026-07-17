@@ -1,0 +1,81 @@
+\chapter{Project Background and Development Journey}
+\label{ch:journey}
+
+\section{Introduction}
+
+This chapter introduces the Industry Sponsored Project under which the \textbf{Portfolio GraphRAG Chatbot} was conceived, scoped, engineered, and delivered (AlgoFabric with Vishwakarma Institute of Technology, Pune). It is a delivery narrative: workstream charter, domain preparation, requirements lock, phased build, verification, and documentation. Later chapters hold the technical body of this SEDD.
+
+Capabilities are classified as \textbf{Implemented} (in-repo, Compose-operable), \textbf{Planned} (PRD v1.1, not built), or \textbf{Future Scope} (deferred). Meeting evidence used here is limited to repository notes: Meeting~01 (29~Jan~2026), Meeting~02 (4~Feb~2026), Meeting~03 (19~Feb~2026).
+
+\section{Workstream and adjacent systems}
+
+Under AlgoFabric's GenAI initiative, this team delivered the \textbf{AlgoFabric Chatbot} workstream---an API-first Portfolio GraphRAG Chatbot: natural-language Q\&A over an ingested holdings graph, DistilRoBERTa mood analysis, and anti-hallucination / non-advisory guardrails. Faculty Guide: Prof.\ Rakhi Bharadwaj.
+
+\begin{table}[!htbp]
+\centering
+\small
+\caption{GenAI capabilities and their relation to this repository}
+\label{tab:genai-tracks}
+\begin{tabularx}{\textwidth}{@{}lXXc@{}}
+\toprule
+\textbf{Capability} & \textbf{Primary purpose} & \textbf{Relation to this project} & \textbf{MVP status} \\
+\midrule
+AlgoFabric Chatbot & Grounded conversational Q\&A over authorised data & Delivery subject (Portfolio GraphRAG) & Implemented \\
+NL Query Agent & Fundamental screening $\rightarrow$ stock list & Shared onboarding context only & Out of scope \\
+Backtesting Agent & Historical strategy evaluation & Shared onboarding context only & Out of scope \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\noindent
+Kickoff framed Chatbot as grounded data Q\&A (not screening or backtesting), expandable from a semantic-search direction. Sibling agents are \textbf{out of this repository's MVP}; composing them behind one conversational orchestrator is \textbf{Future Scope} only. An industry-hosted Chatbot playground was not yet available; remote access, one-pager, and sample queries remain \textbf{Open} (A-01--A-03). This document does not claim that playground was delivered.
+
+\section{Domain preparation and requirements lock}
+
+Shared Excel-first finance literacy (returns, risk, drawdown, alpha/beta conventions) preceded build confidence (Meetings~02--03). Excel analytics were \textbf{learning}; the Implemented chatbot answers from an ingested Neo4j snapshot and does not recompute live risk metrics in the chat path (Chapter~\ref{ch:finance}).
+
+Product/technical intent was locked in \texttt{planning/}: PRD, TRD, UI schema, flows J1--J5, backend schema, implementation plan (phases 0--8)~\cite{prd,trd}. MVP: API-first Neo4j GraphRAG with \texttt{user\_id} isolation; DistilRoBERTa mood separate from the LLM; Redis short-term memory; guardrails; Compose + minimal test page. Excluded: live market APIs, host SSO/JWT, vector-DB RAG, agent loops, full consumer UI.
+
+\section{Phased implementation and verification}
+
+\begin{table}[!htbp]
+\centering
+\small
+\caption{Implementation phases and primary repository artefacts}
+\label{tab:impl-phases}
+\begin{tabularx}{\textwidth}{@{}cXX@{}}
+\toprule
+\textbf{Phase} & \textbf{Engineering focus} & \textbf{Primary artefacts} \\
+\midrule
+0 & Runtime skeleton and health & \texttt{docker-compose.yml}, \texttt{.env.example}, \texttt{backend/app/main.py} \\
+1 & Graph schema and portfolio ingest & \texttt{schema.py}, \texttt{ingest.py}, \texttt{scripts/ingest\_portfolio.py} \\
+2 & User-scoped retrieval & \texttt{services/retrieve.py} \\
+3 & Short-term conversational memory & \texttt{services/memory.py} \\
+4 & Mood classifier and confidence gate & \texttt{services/mood.py} \\
+5 & LLM gateway and guardrails & \texttt{llm\_client.py}, \texttt{guardrails.py}, \texttt{prompts/system.txt} \\
+6 & Chat API orchestration & \texttt{services/chat.py}, \texttt{api/routes\_chat.py} \\
+7 & Minimal test webpage & \texttt{web/index.html}, \texttt{web/app.js} \\
+8 & Hardening and verification tooling & \texttt{tests/}, \texttt{scripts/verify\_*.py}, README runbook \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\noindent
+Verification: unit tests under \texttt{tests/} and \texttt{scripts/verify\_*.py}. Documentation: day-to-day notes under \texttt{docs/}, plus this SEDD as the formal handoff narrative.
+
+\begin{table}[!htbp]
+\centering
+\small
+\caption{Delivery classification summary}
+\label{tab:journey-status}
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\toprule
+\textbf{Classification} & \textbf{Meaning for this project} \\
+\midrule
+Implemented & Compose MVP: ingest, GraphRAG chat API, mood, guardrails, Redis memory, test UI, tests/verify scripts \\
+Planned & Semantic cache, streaming, richer observability, horizontal API scale \\
+Future Scope & Host SSO/JWT, richer portfolio entities, managed Neo4j/Redis, production hosting, sibling-agent orchestration \\
+Open (process) & Industry Chatbot remote access / one-pager / dedicated demo (A-01--A-03) \\
+\bottomrule
+\end{tabularx}
+\end{table}
